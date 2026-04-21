@@ -1,6 +1,7 @@
 import os
 
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 
 from ghibli import tools
@@ -45,11 +46,19 @@ def chat(user_message: str, session_id: str, json_output: bool) -> str:
     contents: list = [{"role": "user", "parts": [{"text": user_message}]}]
 
     while True:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=contents,
-            tools=_TOOLS,
-        )
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    tools=_TOOLS,
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                        disable=True
+                    ),
+                ),
+            )
+        except genai_errors.APIError as e:
+            raise ToolCallError(f"Gemini API error: {e.message}") from e
 
         if not response.function_calls:
             return response.text
