@@ -8,5 +8,13 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Spectra local files
 .spectra/
 openspec/.vector-search.db*
+
+# Claude Code local settings (permissions, personal config)
+.claude/settings.local.json
+
+# Environment variables
+.env
