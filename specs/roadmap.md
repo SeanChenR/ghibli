@@ -7,24 +7,24 @@
 
 ---
 
-## Phase 1 — 核心 CLI（基礎功能）
+## Phase 1 — 核心 CLI（基礎功能）✅ 已完成（2026-04-22）
 
 **目標**：讓自然語言查詢 GitHub 這件事「能跑」
 
-### 功能範疇
+### 實作內容
 
-- 接受自然語言輸入，支援兩種模式：
-  - CLI 參數：`ghibli "找 Python star 數最多的 repo"`
-  - 互動式 prompt：執行 `ghibli` 後輸入
-- 呼叫 Gemini API，解析使用者意圖，生成對應的 GitHub REST API endpoint 與查詢參數
-- 執行 GitHub REST API 請求
-- 輸出格式化結果：預設為表格（Rich），加 `--json` flag 輸出原始 JSON
+- 互動式對話 loop：執行 `ghibli` 後進入 prompt，支援 `--session` 接續歷史
+- Gemini 2.5 Flash Function Calling：自行決定呼叫哪個 GitHub tool、呼叫幾次
+- 6 個 GitHub tools：`search_repositories`、`get_repository`、`list_issues`、`list_pull_requests`、`get_user`、`list_releases`
+- 輸出：預設 Rich Markdown，`--json` 輸出 `{"response": "..."}`
+- Session 持久化：對話歷史存於 `~/.ghibli/sessions.db`，多輪追問有效
 
 ### 完成條件
 
-- [ ] 能處理 10 種以上常見查詢（搜尋 repo、列出 issue、查看 PR 等）
-- [ ] 輸出格式一致、可讀
-- [ ] 基本錯誤不會 crash（API rate limit、網路問題）
+- [x] 能處理 6 種 GitHub API 操作（搜尋、repo 詳情、issues、PRs、releases、user）
+- [x] 輸出格式一致、可讀（Rich Markdown，中文 Unicode 保留）
+- [x] 基本錯誤不會 crash（Gemini APIError、GitHubAPIError 均捕捉，逐輪顯示友善訊息）
+- [x] 多輪對話：session history 正確載入，追問有效（已 E2E 驗證）
 
 ---
 

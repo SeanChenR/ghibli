@@ -6,15 +6,22 @@
 ## 關鍵架構決策
 
 - **LLM**：`google-genai` SDK（非 `google-generativeai`），模型 `gemini-2.5-flash`
-- **認證**：優先 `GEMINI_API_KEY`；否則 `VERTEX_PROJECT` + `VERTEX_LOCATION` + ADC
+- **SDK 注意**：`tools` 必須放在 `config=GenerateContentConfig(tools=..., automatic_function_calling=AutomaticFunctionCallingConfig(disable=True))` 裡，SDK >= 1.0 不接受直接 kwarg
+- **認證**：優先 `GEMINI_API_KEY`；否則 `GOOGLE_CLOUD_PROJECT` + `GOOGLE_CLOUD_LOCATION` + ADC
 - **互動模式**：對話 loop（非單次 pipeline）；Gemini 自行決定是否呼叫 GitHub tool
+- **Session 歷史**：每輪結束後以 `sessions.append_turn()` 存 user + assistant；下一輪開頭以 `sessions.get_turns()` 重建 Gemini `contents`
 - **Session 儲存**：SQLite `~/.ghibli/sessions.db`，`sessions` + `turns` 兩張表
 - **套件管理**：`uv`，Python 3.12，src layout（`src/ghibli/`）
 
-## Change 實作順序
+## Phase 1 完成狀態（2026-04-22）
 
-1. `project-scaffold` → 2. `session-manager` → 3. `github-api-client`
-4. `cli-entry-point` → 5. `github-tools` → 6. `output-formatter`
+所有 6 個 Spectra change 已全部 archive：
+1. ✅ `project-scaffold` — 專案骨架、pyproject.toml、exceptions
+2. ✅ `session-manager` — SQLite sessions/turns CRUD
+3. ✅ `github-api-client` — httpx GitHub REST API 執行層
+4. ✅ `cli-entry-point` — Typer CLI + 對話 loop
+5. ✅ `github-tools` — Gemini Function Calling agent + 6 tools
+6. ✅ `output-formatter` — Rich Markdown / JSON 輸出，session history 串接
 
 ---
 
