@@ -1,10 +1,11 @@
+import json
 import os
 
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 
-from ghibli import tools
+from ghibli import sessions, tools
 from ghibli.exceptions import ToolCallError
 from ghibli.tools import (
     get_repository,
@@ -43,7 +44,15 @@ def chat(user_message: str, session_id: str, json_output: bool) -> str:
             location=os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1"),
         )
 
-    contents: list = [{"role": "user", "parts": [{"text": user_message}]}]
+    prior_turns = sessions.get_turns(session_id)
+    contents: list = [
+        {
+            "role": "model" if t["role"] == "assistant" else t["role"],
+            "parts": [{"text": json.loads(t["content_json"])}],
+        }
+        for t in prior_turns
+    ]
+    contents.append({"role": "user", "parts": [{"text": user_message}]})
 
     while True:
         try:
@@ -61,7 +70,10 @@ def chat(user_message: str, session_id: str, json_output: bool) -> str:
             raise ToolCallError(f"Gemini API error: {e.message}") from e
 
         if not response.function_calls:
-            return response.text
+            final_text = response.text
+            sessions.append_turn(session_id, "user", user_message)
+            sessions.append_turn(session_id, "assistant", final_text)
+            return final_text
 
         contents.append(response.candidates[0].content)
 

@@ -6,6 +6,13 @@ from ghibli.agent import chat
 from ghibli.exceptions import ToolCallError
 
 
+@pytest.fixture(autouse=True)
+def mock_sessions():
+    with patch("ghibli.agent.sessions.get_turns", return_value=[]):
+        with patch("ghibli.agent.sessions.append_turn"):
+            yield
+
+
 # --- 1.4: missing credentials raises ToolCallError ---
 
 def test_missing_credentials_raises_tool_call_error(monkeypatch):
@@ -22,7 +29,7 @@ def test_missing_credentials_raises_tool_call_error(monkeypatch):
 
 def test_api_key_mode_initializes_client(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "test_key")
-    monkeypatch.delenv("VERTEX_PROJECT", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
 
     mock_response = MagicMock()
     mock_response.function_calls = []
@@ -66,7 +73,7 @@ def test_vertex_mode_initializes_client(monkeypatch):
 
 def test_no_tool_call_returns_text(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "test_key")
-    monkeypatch.delenv("VERTEX_PROJECT", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
 
     mock_response = MagicMock()
     mock_response.function_calls = []
@@ -86,7 +93,7 @@ def test_no_tool_call_returns_text(monkeypatch):
 
 def test_function_calling_loop_executes_tool(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "test_key")
-    monkeypatch.delenv("VERTEX_PROJECT", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
 
     mock_fc = MagicMock()
     mock_fc.name = "search_repositories"
@@ -108,5 +115,30 @@ def test_function_calling_loop_executes_tool(monkeypatch):
             result = chat("search python", "s1", False)
 
     mock_tool.assert_called_once_with(q="python")
-    assert isinstance(result, str)
     assert result == "Found Python repos!"
+
+
+# --- 1.9: session history loaded and turns saved after response ---
+
+def test_session_history_appended_after_response(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test_key")
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+
+    mock_response = MagicMock()
+    mock_response.function_calls = []
+    mock_response.text = "Got it!"
+
+    with patch("ghibli.agent.genai.Client") as MockClient:
+        mock_client = MagicMock()
+        MockClient.return_value = mock_client
+        mock_client.models.generate_content.return_value = mock_response
+
+        with patch("ghibli.agent.sessions.get_turns", return_value=[]) as mock_get:
+            with patch("ghibli.agent.sessions.append_turn") as mock_append:
+                chat("hi", "sess-1", False)
+
+    mock_get.assert_called_once_with("sess-1")
+    assert mock_append.call_count == 2
+    calls = [c.args for c in mock_append.call_args_list]
+    assert calls[0] == ("sess-1", "user", "hi")
+    assert calls[1] == ("sess-1", "assistant", "Got it!")
