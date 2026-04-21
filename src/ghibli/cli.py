@@ -3,7 +3,9 @@ from typing import Annotated, Optional
 import click
 import typer
 
-from ghibli import __version__, sessions
+from ghibli import __version__, agent, sessions
+from ghibli.exceptions import GhibliError
+from ghibli.output import render_text
 
 app = typer.Typer(invoke_without_command=True)
 
@@ -72,4 +74,9 @@ def main(
             typer.echo("Bye!")
             break
 
-        typer.echo(f"[stub] {user_input}")
+        try:
+            response = agent.chat(user_input, session_id, json_output)
+            render_text(response, json_output)
+        except GhibliError as e:
+            typer.echo(f"Error: {e}")
+            continue

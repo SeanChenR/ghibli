@@ -4,6 +4,7 @@ import pytest
 from typer.testing import CliRunner
 
 from ghibli.cli import app
+from ghibli.exceptions import GhibliError
 
 
 @pytest.fixture
@@ -58,7 +59,27 @@ def test_eof_exits_gracefully(runner):
     assert result.exit_code == 0
 
 
-# --- 1.5: unknown session ID rejected ---
+# --- 1.5: conversation loop calls agent.chat and render_text ---
+
+def test_conversation_loop_calls_agent(runner):
+    with patch("ghibli.sessions.create_session", return_value="stub-id"):
+        with patch("ghibli.agent.chat", return_value="Some response") as mock_chat:
+            with patch("ghibli.cli.render_text") as mock_render:
+                result = runner.invoke(app, [], input="search python\n\n")
+    assert result.exit_code == 0
+    mock_chat.assert_called_once_with("search python", "stub-id", False)
+    mock_render.assert_called_once_with("Some response", False)
+
+
+def test_ghibli_error_continues_session(runner):
+    with patch("ghibli.sessions.create_session", return_value="stub-id"):
+        with patch("ghibli.agent.chat", side_effect=GhibliError("boom")):
+            result = runner.invoke(app, [], input="query\n\n")
+    assert result.exit_code == 0
+    assert "Error: boom" in result.output
+
+
+# --- 1.7: unknown session ID rejected ---
 
 def test_unknown_session_id_rejected(runner):
     with patch("ghibli.sessions.get_session", return_value=None):
