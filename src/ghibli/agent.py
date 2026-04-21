@@ -27,11 +27,11 @@ _TOOLS = [
 
 def chat(user_message: str, session_id: str, json_output: bool) -> str:
     api_key = os.environ.get("GEMINI_API_KEY")
-    vertex_project = os.environ.get("VERTEX_PROJECT")
+    vertex_project = os.environ.get("GOOGLE_CLOUD_PROJECT")
 
     if not api_key and not vertex_project:
         raise ToolCallError(
-            "Gemini authentication not configured: set GEMINI_API_KEY or VERTEX_PROJECT"
+            "Gemini authentication not configured: set GEMINI_API_KEY or GOOGLE_CLOUD_PROJECT"
         )
 
     if api_key:
@@ -40,7 +40,7 @@ def chat(user_message: str, session_id: str, json_output: bool) -> str:
         client = genai.Client(
             vertexai=True,
             project=vertex_project,
-            location=os.environ.get("VERTEX_LOCATION", "us-central1"),
+            location=os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1"),
         )
 
     contents: list = [{"role": "user", "parts": [{"text": user_message}]}]

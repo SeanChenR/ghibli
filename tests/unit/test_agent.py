@@ -10,12 +10,12 @@ from ghibli.exceptions import ToolCallError
 
 def test_missing_credentials_raises_tool_call_error(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("VERTEX_PROJECT", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
     with pytest.raises(ToolCallError) as exc_info:
         chat("hello", "s1", False)
     msg = str(exc_info.value)
     assert "GEMINI_API_KEY" in msg
-    assert "VERTEX_PROJECT" in msg
+    assert "GOOGLE_CLOUD_PROJECT" in msg
 
 
 # --- 1.5: API key mode initializes client ---
@@ -43,8 +43,8 @@ def test_api_key_mode_initializes_client(monkeypatch):
 
 def test_vertex_mode_initializes_client(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.setenv("VERTEX_PROJECT", "my-project")
-    monkeypatch.delenv("VERTEX_LOCATION", raising=False)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-project")
+    monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
 
     mock_response = MagicMock()
     mock_response.function_calls = []

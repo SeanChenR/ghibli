@@ -40,7 +40,7 @@ def execute(tool_name: str, args: dict) -> dict | list:
     }
 
     token = os.environ.get("GITHUB_TOKEN")
-    if token is not None:
+    if token:
         headers["Authorization"] = f"Bearer {token}"
 
     try:
