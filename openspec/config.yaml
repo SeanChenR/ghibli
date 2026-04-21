@@ -1,0 +1,46 @@
+schema: spec-driven
+
+context: |
+  Project: ghibli (GitHub Intelligence Bridge)
+  Purpose: A CLI tool that converts natural language queries into GitHub REST API requests, executes them, and returns formatted results.
+  
+  Tech stack:
+  - Language: Python 3.12
+  - Package manager: uv
+  - CLI framework: Typer (type-hint-driven, built on Click)
+  - LLM (Phase 1): Google Genai Python SDK: https://googleapis.github.io/python-genai/ — model: gemini-2.5-flash
+  - LLM (Phase 3): LiteLLM (unified interface for Gemini, GPT-4o, Ollama/Llama3)
+  - Target API: GitHub REST API (public endpoints, PAT auth via env var)
+  - Output: Rich (formatted table, default) + --json flag (raw JSON)
+  - Testing: pytest with pytest-cov (min 80% coverage)
+  - Linting/formatting: ruff + black
+  
+  Project structure:
+    src/ghibli/
+      cli.py        — Typer CLI entry point
+      intent.py     — LLM intent parsing (NL → GitHub API endpoint + params)
+      github_api.py — GitHub REST API executor
+      output.py     — Rich table + JSON output formatter
+    tests/
+      unit/
+      integration/
+  
+  Core flow:
+    natural language input → Gemini API (parse intent) → GitHub REST API (execute) → formatted output
+  
+  Conventions:
+  - TDD: write tests BEFORE implementation (Red → Green → Refactor)
+  - Type hints on all function signatures
+  - Dataclasses for data transfer objects
+  - Custom exception hierarchy under GhibliError base
+  - Environment variables: GEMINI_API_KEY (API key mode) or VERTEX_PROJECT + VERTEX_LOCATION (Vertex AI mode, one of two is required), GITHUB_TOKEN (optional), OPENAI_API_KEY (Phase 3)
+  - Output schema must be stable — Phase 3 eval ground truth depends on it
+rules:
+  proposal:
+    - Always include a Non-Goals section to define scope boundaries
+    - Capabilities must map 1:1 to specs created in this change
+  tasks:
+    - Each task must be completable in under 2 hours
+    - Write the test task BEFORE the implementation task for every feature
+    - Include the exact file path and function/class name in every task
+    - Never use vague instructions like "add error handling" — specify which errors and how
