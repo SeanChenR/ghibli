@@ -2,6 +2,12 @@
 
 用自然語言查詢 GitHub，不需要記住 API 格式。
 
+> **Take-Home Assessment 快速索引**
+> - **Part 1 — 執行 CLI 工具**：`uv run ghibli`（詳見[使用方式](#使用方式)）
+> - **Part 2 — 執行 Eval Pipeline**：`uv run python evals/run_evals.py`（詳見 [Eval 框架](#eval-框架part-2-入口)）
+> - **架構決策與取捨**：見[架構決策與取捨](#架構決策與取捨)章節
+> - **已知限制說明**：見[已知限制](#已知限制)章節
+
 ```
 You> 搜尋最多星星的 TypeScript 前端框架
 Ionic Framework 是最受歡迎的 TypeScript 前端框架，它有 52466 顆星。
@@ -103,6 +109,68 @@ output.py（Rich Markdown / JSON 輸出）
 
 ---
 
+## 架構決策與取捨
+
+### 為什麼用 Function Calling，而不是 prompt-based JSON 輸出？
+
+最直觀的做法是要求 LLM 輸出一段 JSON（`{"tool": "search_repositories", "args": {...}}`），再由程式解析執行。我選擇不這樣做，原因有三：
+
+1. **型別安全**：Function Calling 由 SDK 自動驗證參數型別與必填欄位，prompt-based 輸出需要自己寫 schema validation，且 LLM 容易偷偷漏欄位或型別錯誤。
+2. **多步驟推理**：面對「找 star 最多的 Go web framework，再看它最近的 issue」這類查詢，Function Calling 允許模型在同一次對話中連續呼叫多個 tool，prompt-based 要自己實作 agentic loop。
+3. **可觀測性**：`response.function_calls` 直接暴露模型呼叫了哪個 tool、帶了什麼參數，在 eval 框架中可以直接記錄 `tools_called`，不需要額外解析 LLM 輸出。
+
+取捨：Function Calling 把控制權交給模型，偶爾模型會選錯 tool 或跳過必要步驟，需要 system prompt 補強。
+
+### 為什麼用 SQLite 而不是 in-memory 儲存？
+
+CLI 工具的使用情境是多次短暫啟動，每次對話幾輪後關閉。in-memory 儲存代表每次啟動都是全新 session，無法做到「接續上次問到哪裡」。
+
+SQLite 選擇的理由：
+- **零配置**：不需要起 server，單一檔案存在 `~/.ghibli/sessions.db`
+- **足夠輕量**：對話歷史的資料量極小，SQLite 完全夠用
+- **持久化**：允許 `--session <id>` 接續歷史對話
+
+取捨：目前沒有 history truncation，長時間使用後 session 會無限增長。生產環境應加入 token 預算上限或滾動視窗機制。
+
+### 為什麼停用 automatic_function_calling？
+
+`google-genai` SDK 預設會自動執行 function call 並把結果回傳給模型，整個 agentic loop 在 SDK 內部完成，呼叫者看不到過程。
+
+我選擇手動控制（`disable=True`）的原因：
+- **可觀測**：eval 框架需要記錄哪些 tool 被呼叫；自動模式下無法 patch tool 函式並追蹤呼叫
+- **錯誤邊界清楚**：每次 tool 呼叫都在我的 try/except 裡，GitHub API 錯誤可以正確包裝成 `GitHubAPIError` 回傳給模型
+- **彈性**：未來可以在呼叫前後加入 rate limit、快取、日誌等邏輯
+
+### System Prompt 設計
+
+`_SYSTEM_PROMPT` 是這個專案中唯一的「prompt engineering」層，每個規則都對應一類 eval 失敗：
+
+```
+## Typo correction
+在呼叫任何 tool 前，先靜默修正 repo name、org name、
+程式語言名稱的明顯錯別字。
+（修復依據：typo 類 eval 初始全部 fail，模型直接用錯誤拼字呼叫 API）
+
+## search_repositories — q is always required
+q 參數必填，永遠不能空呼叫。
+模糊查詢時的 fallback 策略：
+- 「最受歡迎」→ q="stars:>10000"
+- 「有趣的開源專案」→ q="stars:>1000 pushed:>2024-01-01"
+- 「最近很紅」→ q="created:>2024-01-01 stars:>1000"
+（修復依據：fuzzy 類 eval 出現 tool call missing required argument 錯誤）
+
+## Contradictory or impossible conditions
+邏輯上不可能的條件，解釋原因而非嘗試搜尋。
+（修復依據：模型面對矛盾條件會回傳空結果但不解釋，eval 視為 pass
+ 但品質不足）
+
+## Language
+永遠用使用者輸入的語言回覆。
+（修復依據：multilingual eval 偶爾用英文回覆日文輸入）
+```
+
+---
+
 ## 現況與計畫
 
 | Phase | 狀態 | 說明 |
@@ -115,7 +183,7 @@ output.py（Rich Markdown / JSON 輸出）
 
 ---
 
-## Eval 框架
+## Eval 框架（Part 2 入口）
 
 `evals/` 目錄包含系統性測試工具，用於驗證自然語言理解的邊緣案例：
 
@@ -144,7 +212,15 @@ uv run python evals/run_evals.py --category fuzzy
 
 ## Phase 2 強化內容
 
-以下說明 eval 框架找出的缺陷與對應的修復措施：
+### 問題發現流程
+
+Phase 1 完成後，我設計了 30 條邊緣案例（`evals/queries.yaml`）並跑第一輪 eval，初始結果 23/30 pass，失敗集中在三類：
+
+1. **工具呼叫錯誤（error）**：Gemini 嘗試呼叫 `search_repositories` 但沒有帶 `q` 參數 → SDK 拋出 validation error → 整筆 eval 記錄為 error
+2. **404 / 301 錯誤**：`microsfot/vscode` 拼錯導致 404；`tiangolo/fastapi` 已遷移到 `fastapi/fastapi` 但 httpx 預設不追蹤 301
+3. **回應語言錯誤**：日文輸入收到英文回覆
+
+以下說明各問題的根因分析與修復決策：
 
 ### 已修復
 
