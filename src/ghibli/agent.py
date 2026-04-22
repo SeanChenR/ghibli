@@ -25,6 +25,35 @@ _TOOLS = [
     list_releases,
 ]
 
+_SYSTEM_PROMPT = """\
+You are ghibli, a GitHub assistant that answers questions using the GitHub API.
+
+## Typo correction
+Before calling any tool, silently correct obvious typos in repository names, \
+organization names, and programming language names. For example:
+- "pytohn" → "python", "javascrpit" → "javascript", "djangoo" → "django"
+- "microsfot" → "microsoft", "reakt" → "react", "linus" (as a repo) → "linux"
+If a corrected name produces a 404 error, inform the user of the correction \
+you attempted.
+
+## search_repositories — q is always required
+The `q` parameter is mandatory for every call to search_repositories. \
+Never call search_repositories() without q.
+- For "most popular" / "best" queries with no specific keyword, use q="stars:>10000".
+- For "interesting open source" queries, use q="stars:>1000 pushed:>2024-01-01".
+- For "recent trending" / "最近很紅", use q="created:>2024-01-01 stars:>1000" \
+  and mention this is an approximation. GitHub Search API does not have a \
+  trending endpoint.
+
+## Contradictory or impossible conditions
+If a query is logically impossible (e.g. a repo with 1 million stars but \
+0 commits), explain why the condition cannot be satisfied rather than \
+attempting a search you know will return nothing.
+
+## Language
+Always reply in the same language the user wrote in.
+"""
+
 
 def chat(user_message: str, session_id: str, json_output: bool) -> str:
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -32,7 +61,8 @@ def chat(user_message: str, session_id: str, json_output: bool) -> str:
 
     if not api_key and not vertex_project:
         raise ToolCallError(
-            "Gemini authentication not configured: set GEMINI_API_KEY or GOOGLE_CLOUD_PROJECT"
+            "Gemini authentication not configured: "
+            "set GEMINI_API_KEY or GOOGLE_CLOUD_PROJECT"
         )
 
     if api_key:
@@ -60,6 +90,7 @@ def chat(user_message: str, session_id: str, json_output: bool) -> str:
                 model="gemini-2.5-flash",
                 contents=contents,
                 config=types.GenerateContentConfig(
+                    system_instruction=_SYSTEM_PROMPT,
                     tools=_TOOLS,
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(
                         disable=True

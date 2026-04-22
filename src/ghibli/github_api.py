@@ -45,7 +45,8 @@ def execute(tool_name: str, args: dict) -> dict | list:
 
     try:
         response = httpx.request(
-            method, url, params=remaining_args, headers=headers, timeout=10.0
+            method, url, params=remaining_args, headers=headers, timeout=10.0,
+            follow_redirects=True,
         )
         response.raise_for_status()
     except httpx.HTTPStatusError as e:

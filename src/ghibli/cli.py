@@ -2,11 +2,13 @@ from typing import Annotated, Optional
 
 import click
 import typer
+from dotenv import load_dotenv
 
 from ghibli import __version__, agent, sessions
 from ghibli.exceptions import GhibliError
 from ghibli.output import render_text
 
+load_dotenv(override=True)
 app = typer.Typer(invoke_without_command=True)
 
 

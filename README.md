@@ -108,7 +108,79 @@ output.py（Rich Markdown / JSON 輸出）
 | Phase | 狀態 | 說明 |
 |---|---|---|
 | Phase 1 — 核心 CLI | ✅ 完成 | 互動對話、Function Calling、session 持久化 |
-| Phase 2 — 強化層 | 未開始 | 輸入清洗、typo 容錯、模糊查詢 fallback |
+| Phase 2 — 強化層 | ✅ 完成 | Eval 框架、typo 容錯、模糊查詢 fallback、system prompt 強化 |
 | Phase 3 — 多模型評測 | 未開始 | LiteLLM 跨模型評測 pipeline |
 
 詳見 [`specs/roadmap.md`](specs/roadmap.md)。
+
+---
+
+## Eval 框架
+
+`evals/` 目錄包含系統性測試工具，用於驗證自然語言理解的邊緣案例：
+
+```bash
+# 執行完整 eval（需設定 GEMINI_API_KEY）
+uv run python evals/run_evals.py
+
+# 只跑特定類別
+uv run python evals/run_evals.py --category typo
+uv run python evals/run_evals.py --category fuzzy
+```
+
+`evals/queries.yaml` 包含 30 條測試案例，分為五類：
+
+| 類別 | 數量 | 說明 |
+|---|---|---|
+| `fuzzy` | 6 | 模糊輸入，沒有明確 API 參數對應 |
+| `typo` | 6 | 常見拼字錯誤（語言名稱、org/repo 名稱） |
+| `contradiction` | 6 | 邏輯上不可能的條件 |
+| `multilingual` | 6 | 日文、韓文輸入 |
+| `multi_step` | 6 | 需要兩次以上 tool call 的查詢 |
+
+結果存入 `evals/results.json`（append 模式，保留歷史）。每筆 result 包含完整回覆（`response_full`）、實際呼叫的工具列表（`tools_called`）、執行時間與 pass/fail/error 狀態。
+
+---
+
+## Phase 2 強化內容
+
+以下說明 eval 框架找出的缺陷與對應的修復措施：
+
+### 已修復
+
+**錯別字容錯（Typo Tolerance）**
+
+在 system prompt 加入 typo correction 指引，要求 Gemini 在呼叫任何 API 前先修正明顯拼字錯誤（如 `pytohn→python`、`microsfot→microsoft`、`javascrpit→javascript`）。修復後 typo 類 6 條全部 pass。
+
+**模糊查詢的 `q` 參數策略**
+
+`search_repositories` 的 `q` 參數為必填，但面對「找個有趣的開源專案」這類完全模糊的查詢，Gemini 原先會嘗試不帶參數呼叫而導致 error。system prompt 現在明確規定：
+- 「最受歡迎」類 → `q="stars:>10000"`
+- 「有趣的開源專案」類 → `q="stars:>1000 pushed:>2025-01-01"`
+- 「最近很紅」類 → `q="created:>2025-01-01 stars:>1000"`
+
+**GitHub repo 重新導向（301 Redirect）**
+
+GitHub 在 repo 遷移或重命名後會回傳 301。`github_api.py` 加入 `follow_redirects=True`，httpx 現在自動追蹤重新導向。
+
+---
+
+## 已知限制
+
+以下為根本上難以完整解決的問題：
+
+### 1. 模糊輸入的近似解
+
+GitHub REST API 沒有官方 trending endpoint。ghibli 以 `created:>2025-01-01 sort:stars` 來近似「近期熱門」，eval 顯示能找出 OpenClaw、Hermes Agent 等 AI Agent repo，但這只是近似法——star 增長快速但創建時間較早的 repo 可能被遺漏。
+
+### 2. 矛盾條件依賴 Gemini 推理
+
+「找 star 超過 100 萬的 repo」、「列出同時 open 又 closed 的 PR」等邏輯矛盾查詢，GitHub API 本身不驗證可能性，只回傳空結果。Gemini 在 eval 中能正確識別 6 條矛盾條件並給出解釋，但這依賴模型推理，非程式層保證。
+
+### 3. 錯別字修正的邊界
+
+typo correction 依賴 Gemini 推理，沒有規則式驗證。語意歧義的情況（如「linus」可能是人名也可能是 repo 名 `linux`）仍可能修正錯誤方向。
+
+### 4. 非繁中多語言
+
+日文、韓文在 eval 6 條查詢均 pass，但屬未正式驗證的行為。複雜多步驟的日韓文查詢準確性不保證。
