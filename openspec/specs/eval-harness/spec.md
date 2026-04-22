@@ -90,51 +90,55 @@ tests:
 ---
 ### Requirement: Results file captures structured run output
 
-The file `evals/results.json` SHALL contain a JSON array of run objects. Each run object SHALL include: `run_id` (ISO 8601 timestamp), `total` (int), `passed` (int), `failed` (int), `errors` (int), and `results` (array of per-query result objects). Each per-query result SHALL include: `query_id`, `category`, `query`, `status` (`pass`, `fail`, or `error`), `tools_called` (list of tool names), `response_preview` (first 200 chars of response, or empty string), `error_message` (string or null), and `duration_seconds` (float).
+The file `evals/results.json` SHALL contain a JSON array of run objects. Each run object SHALL include: `run_id` (ISO 8601 timestamp), `model` (string, name of the model used), `total` (int), `passed` (int), `failed` (int), `errors` (int), `accuracy` (float, passed/total), and `results` (array of per-query result objects). Each per-query result SHALL include: `query_id`, `category`, `query`, `status` (`pass`, `fail`, or `error`), `tools_called` (list of tool names), `judge_result` (object with `tool_match`, `sequence_match`, `pass_` booleans), `response_preview` (first 200 chars of response, or empty string), `response_full` (complete model response text), `error_message` (string or null), and `duration_seconds` (float).
 
 #### Scenario: Results file is appended on each run
 
 - **WHEN** `run_evals.py` is run twice
 - **THEN** `results.json` contains two run objects in the top-level array
 
-#### Scenario: Status values reflect actual outcome
+#### Scenario: Run object includes model and accuracy
 
-- **WHEN** `agent.chat()` returns a non-empty text response
-- **THEN** `status` is `pass`
+- **WHEN** a run completes with model `"gpt4o-mini"` and 26 of 30 queries pass
+- **THEN** the run object has `model: "gpt4o-mini"` and `accuracy: 0.8666...`
 
-- **WHEN** `agent.chat()` returns an empty string or None
-- **THEN** `status` is `fail`
+#### Scenario: Per-query result includes judge_result
 
-- **WHEN** `agent.chat()` raises any exception
-- **THEN** `status` is `error`
-
-#### Scenario: tools_called reflects actual function calls
-
-- **WHEN** Gemini calls `search_repositories` during a query
-- **THEN** `tools_called` contains `"search_repositories"`
-
-- **WHEN** Gemini returns a text response without any tool call
-- **THEN** `tools_called` is an empty list
+- **WHEN** a per-query result entry is read
+- **THEN** it contains a `judge_result` object with at minimum `tool_match` and `pass_` boolean fields
 
 
 <!-- @trace
-source: eval-framework
+source: multi-model-eval
 updated: 2026-04-22
 code:
-  - uv.lock
-  - src/ghibli/cli.py
-  - evals/queries.yaml
-  - .env.example
-  - pyproject.toml
-  - evals/results.json
-  - evals/run_evals.py
-  - src/ghibli/github_api.py
-  - src/ghibli/agent.py
+  - evals/compare_models.py
   - README.md
-  - evals/__init__.py
+  - evals/results.json
+  - specs/eval-hardening-log.md
+  - evals/models.py
+  - src/ghibli/tool_schema.py
+  - src/ghibli/tools.py
+  - evals/run_evals.py
+  - evals/judge.py
+  - .env.example
+  - evals/queries.yaml
+  - src/ghibli/github_api.py
+  - pyproject.toml
+  - evals/tool_schema.py
+  - CLAUDE.md
+  - specs/github-api-capabilities.md
+  - src/ghibli/agent.py
+  - uv.lock
 tests:
+  - tests/unit/test_tools.py
+  - tests/unit/test_judge.py
   - tests/unit/test_eval_runner.py
+  - tests/unit/test_models.py
+  - tests/unit/test_compare_models.py
+  - tests/unit/test_agent.py
   - tests/unit/test_eval_queries.py
+  - tests/unit/test_tool_schema.py
 -->
 
 ---

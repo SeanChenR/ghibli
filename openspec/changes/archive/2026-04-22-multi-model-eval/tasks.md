@@ -37,12 +37,12 @@
 
 ## 7. Eval 執行與 Prompt 迭代
 
-- [ ] 7.1 跑 Gemini baseline：`uv run python evals/run_evals.py --model gemini`，記錄 accuracy 與失敗 query ID
-- [ ] 7.2 跑 GPT-4o-mini：`uv run python evals/run_evals.py --model gpt4o-mini`，記錄 accuracy 與失敗 query ID
-- [ ] 7.3 跑 Llama 3：`uv run python evals/run_evals.py --model llama3`，記錄 accuracy 與失敗 query ID
-- [ ] 7.4 若任一模型 accuracy < 85%，針對失敗類別修改 `_SYSTEM_PROMPT`（`src/ghibli/agent.py`），重新跑該模型直到 ≥ 85%
-- [ ] 7.5 執行 `uv run python evals/compare_models.py`，確認三個模型輸出欄位完整
+- [x] 7.1 跑 Gemini baseline：`uv run python evals/run_evals.py --model gemini`，記錄 accuracy 與失敗 query ID
+- [x] 7.2 跑 GPT-4o-mini：`uv run python evals/run_evals.py --model gpt4o-mini`，記錄 accuracy 與失敗 query ID
+- [x] 7.3 跑 Llama 3：`uv run python evals/run_evals.py --model llama3`，記錄 accuracy 與失敗 query ID
+- [x] 7.4 若任一模型 accuracy < 85%，針對失敗類別修改 `_SYSTEM_PROMPT`（`src/ghibli/agent.py`），重新跑該模型直到 ≥ 85%
+- [x] 7.5 執行 `uv run python evals/compare_models.py`，確認三個模型輸出欄位完整
 
 ## 8. README Part 2 Write-up
 
-- [ ] 8.1 在 `README.md` 新增「Part 2 — Multi-Model Eval」章節：(a) 模型選擇理由（為何選這三個）；(b) 各模型初始 accuracy 與失敗模式；(c) prompt 迭代過程與前後效果；(d) eval 設計心得（ground truth 標注難點、judge 設計取捨）
+- [x] 8.1 在 `README.md` 新增「Part 2 — Multi-Model Eval」章節：(a) 模型選擇理由（為何選這三個）；(b) 各模型初始 accuracy 與失敗模式；(c) prompt 迭代過程與前後效果；(d) eval 設計心得（ground truth 標注難點、judge 設計取捨）
