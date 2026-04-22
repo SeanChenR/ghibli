@@ -1,19 +1,32 @@
 import json
 import os
+import re
+import time
 
+import litellm
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
+from litellm.exceptions import APIConnectionError as LiteLLMConnectionError
+from litellm.exceptions import RateLimitError as LiteLLMRateLimitError
 
 from ghibli import sessions, tools
 from ghibli.exceptions import ToolCallError
+from ghibli.tool_schema import get_openai_tool_schemas
 from ghibli.tools import (
+    get_languages,
+    get_readme,
     get_repository,
     get_user,
+    list_commits,
+    list_contributors,
     list_issues,
     list_pull_requests,
     list_releases,
+    search_code,
+    search_issues,
     search_repositories,
+    search_users,
 )
 
 _TOOLS = [
@@ -23,14 +36,23 @@ _TOOLS = [
     list_pull_requests,
     get_user,
     list_releases,
+    get_languages,
+    list_contributors,
+    list_commits,
+    search_code,
+    search_users,
+    search_issues,
+    get_readme,
 ]
+
+_OLLAMA_CLOUD_API_BASE = "https://ollama.com"
 
 _SYSTEM_PROMPT = """\
 You are ghibli, a GitHub assistant that answers questions using the GitHub API.
 
 ## Typo correction
 Before calling any tool, silently correct obvious typos in repository names, \
-organization names, and programming language names. For example:
+organisation names, and programming language names. For example:
 - "pytohn" → "python", "javascrpit" → "javascript", "djangoo" → "django"
 - "microsfot" → "microsoft", "reakt" → "react", "linus" (as a repo) → "linux"
 If a corrected name produces a 404 error, inform the user of the correction \
@@ -42,20 +64,111 @@ Never call search_repositories() without q.
 - For "most popular" / "best" queries with no specific keyword, use q="stars:>10000".
 - For "interesting open source" queries, use q="stars:>1000 pushed:>2024-01-01".
 - For "recent trending" / "最近很紅", use q="created:>2024-01-01 stars:>1000" \
-  and mention this is an approximation. GitHub Search API does not have a \
-  trending endpoint.
+  and mention this is an approximation.
+
+## Tool selection — critical rules
+Each tool has a strict scope. Using the wrong tool is always incorrect:
+- list_issues / list_pull_requests: ONLY for a SPECIFIC repo (owner + repo required). \
+  NEVER use for cross-repo searches.
+- search_issues: For finding issues or PRs ACROSS multiple repos. \
+  Use when no specific single repo is mentioned.
+- get_repository: Returns repo metadata only — NOT README content, NOT full language breakdown.
+- get_languages: For the FULL language breakdown (bytes per language). \
+  Do NOT substitute get_repository.
+- get_readme: Use when the user wants to READ the README content. \
+  get_repository does not include README text.
+- search_users: To FIND developers or organisations by criteria. \
+  Do NOT use search_repositories for finding people.
+- search_code: To find code PATTERNS or function usage across repos. \
+  Do NOT use search_repositories when the user is asking about code content.
 
 ## Contradictory or impossible conditions
-If a query is logically impossible (e.g. a repo with 1 million stars but \
-0 commits), explain why the condition cannot be satisfied rather than \
-attempting a search you know will return nothing.
+Do NOT call any tool for logically impossible queries — explain why instead:
+- No public repository has more than 500,000 stars; "1 million stars" is impossible.
+- Fork counts are almost always less than star counts (roughly 5–20% of stars). \
+  A repository with forks exceeding stars by 100× or 1000× has never existed.
+- Any other empirically impossible combination.
+NOTE: stars being much greater than forks is COMPLETELY NORMAL and is NOT a contradiction.
 
 ## Language
 Always reply in the same language the user wrote in.
 """
 
 
+def _chat_ollama_cloud(user_message: str, session_id: str, model_name: str) -> str:
+    """Chat via Ollama Cloud using LiteLLM. model_name is the bare model slug."""
+    api_key = os.environ.get("OLLAMA_API_KEY")
+    if not api_key:
+        raise ToolCallError(
+            "OLLAMA_API_KEY is required for Ollama Cloud mode. "
+            "Get yours at https://ollama.com/settings/keys"
+        )
+
+    model_id = f"ollama_chat/{model_name}"
+    tool_schemas = get_openai_tool_schemas()
+
+    prior_turns = sessions.get_turns(session_id)
+    messages: list[dict] = [{"role": "system", "content": _SYSTEM_PROMPT}]
+    for t in prior_turns:
+        messages.append({"role": t["role"], "content": json.loads(t["content_json"])})
+    messages.append({"role": "user", "content": user_message})
+
+    while True:
+        try:
+            response = litellm.completion(
+                model=model_id,
+                messages=messages,
+                tools=tool_schemas,
+                tool_choice="auto",
+                timeout=120,
+                api_base=_OLLAMA_CLOUD_API_BASE,
+                api_key=api_key,
+            )
+        except LiteLLMRateLimitError as e:
+            m = re.search(r"try again in (\d+(?:\.\d+))s", str(e))
+            wait = float(m.group(1)) + 2 if m else 20.0
+            time.sleep(wait)
+            continue
+        except LiteLLMConnectionError as e:
+            raise ToolCallError(f"Ollama Cloud connection error: {e}") from e
+
+        choice = response.choices[0]
+        msg = choice.message
+
+        if not msg.tool_calls:
+            final_text = msg.content or ""
+            sessions.append_turn(session_id, "user", user_message)
+            sessions.append_turn(session_id, "assistant", final_text)
+            return final_text
+
+        messages.append({"role": "assistant", "content": msg.content, "tool_calls": msg.tool_calls})
+
+        for tc in msg.tool_calls:
+            fn_name = tc.function.name
+            fn_args = json.loads(tc.function.arguments)
+            try:
+                result = getattr(tools, fn_name)(**fn_args)
+            except Exception as e:
+                raise ToolCallError(f"{fn_name} failed: {e}") from e
+            result_str = json.dumps(result, ensure_ascii=False, default=str)
+            if len(result_str) > 8000:
+                result_str = result_str[:8000] + "... [truncated]"
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": result_str,
+            })
+
+
 def chat(user_message: str, session_id: str, json_output: bool) -> str:
+    ghibli_model = os.environ.get("GHIBLI_MODEL", "gemini-2.5-flash")
+
+    # Route to Ollama Cloud when GHIBLI_MODEL=ollama:<model-slug>
+    if ghibli_model.startswith("ollama:"):
+        ollama_model = ghibli_model[len("ollama:"):]
+        return _chat_ollama_cloud(user_message, session_id, ollama_model)
+
+    # --- Gemini native SDK path ---
     api_key = os.environ.get("GEMINI_API_KEY")
     vertex_project = os.environ.get("GOOGLE_CLOUD_PROJECT")
 
@@ -87,7 +200,7 @@ def chat(user_message: str, session_id: str, json_output: bool) -> str:
     while True:
         try:
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=ghibli_model,
                 contents=contents,
                 config=types.GenerateContentConfig(
                     system_instruction=_SYSTEM_PROMPT,

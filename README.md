@@ -177,7 +177,7 @@ q 參數必填，永遠不能空呼叫。
 |---|---|---|
 | Phase 1 — 核心 CLI | ✅ 完成 | 互動對話、Function Calling、session 持久化 |
 | Phase 2 — 強化層 | ✅ 完成 | Eval 框架、typo 容錯、模糊查詢 fallback、system prompt 強化 |
-| Phase 3 — 多模型評測 | 未開始 | LiteLLM 跨模型評測 pipeline |
+| Phase 3 — 多模型評測 | ✅ 完成 | LiteLLM 跨模型評測、工具擴充至 13 個、hardening 至 100% |
 
 詳見 [`specs/roadmap.md`](specs/roadmap.md)。
 
@@ -185,28 +185,34 @@ q 參數必填，永遠不能空呼叫。
 
 ## Eval 框架（Part 2 入口）
 
-`evals/` 目錄包含系統性測試工具，用於驗證自然語言理解的邊緣案例：
+`evals/` 目錄包含系統性測試工具，支援多模型評測與邊緣案例驗證：
 
 ```bash
-# 執行完整 eval（需設定 GEMINI_API_KEY）
-uv run python evals/run_evals.py
+# 單模型跑完整 30 條（需對應 API key）
+uv run python evals/run_evals.py --model gemini
+uv run python evals/run_evals.py --model gpt4o-mini
+uv run python evals/run_evals.py --model gemma4
+uv run python evals/run_evals.py --model ollama-cloud   # 需設定 OLLAMA_API_KEY
 
 # 只跑特定類別
-uv run python evals/run_evals.py --category typo
-uv run python evals/run_evals.py --category fuzzy
+uv run python evals/run_evals.py --model gemini --category typo
+
+# 跨模型比較表（輸出 Markdown table）
+uv run python evals/compare_models.py
 ```
 
-`evals/queries.yaml` 包含 30 條測試案例，分為五類：
+`evals/queries.yaml` 包含 30 條測試案例，分為六類：
 
 | 類別 | 數量 | 說明 |
 |---|---|---|
-| `fuzzy` | 6 | 模糊輸入，沒有明確 API 參數對應 |
-| `typo` | 6 | 常見拼字錯誤（語言名稱、org/repo 名稱） |
-| `contradiction` | 6 | 邏輯上不可能的條件 |
-| `multilingual` | 6 | 日文、韓文輸入 |
-| `multi_step` | 6 | 需要兩次以上 tool call 的查詢 |
+| `qualifier` | 5 | 複合過濾條件（license、language、stars 組合） |
+| `temporal` | 5 | 時間範圍查詢，包含未來年份矛盾 |
+| `typo` | 5 | 常見拼字錯誤（語言名稱、org/repo 名稱） |
+| `contradiction` | 5 | 邏輯上不可能的條件，含 TRAP query（正常的 star >> fork 不應拒絕） |
+| `multi_step` | 5 | 需要兩次以上 tool call 的序列查詢 |
+| `tool_selection` | 5 | 每條都有誘人的錯誤工具設計，測試模型是否選對工具 |
 
-結果存入 `evals/results.json`（append 模式，保留歷史）。每筆 result 包含完整回覆（`response_full`）、實際呼叫的工具列表（`tools_called`）、執行時間與 pass/fail/error 狀態。
+每條 query 附有 `ground_truth`（期望呼叫的工具序列），judge 使用 subsequence matching 判斷 pass/fail。結果存入 `evals/results.json`。
 
 ---
 
@@ -238,6 +244,99 @@ Phase 1 完成後，我設計了 30 條邊緣案例（`evals/queries.yaml`）並
 **GitHub repo 重新導向（301 Redirect）**
 
 GitHub 在 repo 遷移或重命名後會回傳 301。`github_api.py` 加入 `follow_redirects=True`，httpx 現在自動追蹤重新導向。
+
+---
+
+## Part 2 — 多模型評測結果
+
+### 評測結果
+
+| Model | Overall | Qualifier | Temporal | Typo | Contradiction | Multi-Step | Tool Selection |
+|-------|---------|-----------|----------|------|---------------|------------|----------------|
+| gemini-2.5-flash | **100%** | 100% | 100% | 100% | 100% | 100% | 100% |
+| gpt-4o-mini | **100%** | 100% | 100% | 100% | 100% | 100% | 100% |
+| gemma-4-26b | **100%** | 100% | 100% | 100% | 100% | 100% | 100% |
+
+三個模型在 30 條 query 上全部達到 100%，但這是經過多輪 prompt hardening 後的結果——**初始版本並非如此**。
+
+---
+
+### 模型選型理由
+
+| Model | 選用理由 |
+|-------|---------|
+| **gemini-2.5-flash** | 本專案主模型（agent.py），eval 以此為 baseline |
+| **gpt-4o-mini** | 成本最低的 OpenAI 模型，代表「便宜但夠用」的方案，function calling 穩定 |
+| **gemma-4-26b** | Google 開源模型，透過 Gemini API 存取，測試開源模型的工具使用能力 |
+| **ollama-cloud** | 接口已實作並保留（`evals/models.py` + `src/ghibli/agent.py`），但 Ollama Cloud 模型（minimax-m2.7:cloud）推理速度過慢（單條 query 超過 30 分鐘），未完成完整評測 |
+
+---
+
+### Eval 設計演進
+
+**v1（Phase 1）**：30 條、5 categories × 6，問題太容易，模型普遍達到 96.7%。
+
+**v2（Phase 2 初版）**：37 條，追加 7 條測試新工具，但新增的 `extended` 查詢缺乏「誘人的錯誤工具」設計，仍然太容易。
+
+**v3（最終版）**：30 條、6 categories × 5，以 `tool_selection` 取代 `extended`：
+- 每條 `tool_selection` query 都刻意包含一個誘人的錯誤工具（例如：問 issue 跨 repo 搜尋，誘導模型用 `list_issues` 而非 `search_issues`）
+- 新增 TRAP contradiction query：`stars >> forks` 是正常現象，模型不應拒絕呼叫工具
+- 複合 qualifier（license + language + pushed 同時組合）
+- 複合 temporal（created range + stars 閾值）
+
+---
+
+### Prompt Hardening 過程
+
+初始版本各模型失敗案例與修復：
+
+#### Failure 1：Gemini — qualifier-003 不呼叫工具
+
+模型從訓練資料直接回答「zero dependency JavaScript 工具」，沒有呼叫 GitHub API。
+
+**修復**：system prompt 加入 `## Always use tools — never answer from training data`，明確要求任何 GitHub 相關問題都必須呼叫工具。
+
+#### Failure 2：GPT-4o-mini — 工具邊界混淆（list_issues vs search_issues）
+
+「找所有 Python repo 裡的 good-first-issue」應使用 `search_issues`（跨 repo），但模型選了 `list_issues`（只能查單一 repo）。
+
+**修復**：system prompt 新增 `## Tool selection — critical rules`，逐條說明每個工具的使用場景與禁止場景。
+
+#### Failure 3：GPT-4o-mini — 矛盾條件仍呼叫工具
+
+「fork 數是 star 數 1000 倍」應判斷為不可能並直接解釋，但模型選擇先搜尋再驗證。
+
+**修復**：改為強制語氣「MUST respond with explanation only — never call any tool, not even to verify」，同時加入 TRAP query 區分「fork >> star 不可能」與「star >> fork 正常」兩種情況，防止過度保守。
+
+#### Failure 4：GPT-4o-mini — multi-step 跳過 get_repository
+
+search_repositories 後已知 owner/repo，模型判斷 get_repository 多餘而跳過，儘管 query 明確說「先取得 repo 資訊」。
+
+**修復**：列出中文觸發短語（「取得 repo 資訊」、「先取得它的資訊」），明確要求即使已知 owner/repo 也必須呼叫。
+
+完整記錄見 [`specs/eval-hardening-log.md`](specs/eval-hardening-log.md)。
+
+---
+
+### 工具清單（13 個）
+
+Phase 2 從 Phase 1 的 6 個工具擴充至 13 個：
+
+| 工具 | GitHub API | 說明 |
+|------|-----------|------|
+| `search_repositories` | `GET /search/repositories` | 依條件搜尋 repo |
+| `get_repository` | `GET /repos/{owner}/{repo}` | 取得單一 repo metadata |
+| `list_issues` | `GET /repos/{owner}/{repo}/issues` | 列出特定 repo 的 issues |
+| `list_pull_requests` | `GET /repos/{owner}/{repo}/pulls` | 列出特定 repo 的 PRs |
+| `get_user` | `GET /users/{username}` | 取得使用者資訊 |
+| `list_releases` | `GET /repos/{owner}/{repo}/releases` | 列出 repo 的 releases |
+| `get_languages` | `GET /repos/{owner}/{repo}/languages` | 完整語言分布（bytes） |
+| `list_contributors` | `GET /repos/{owner}/{repo}/contributors` | 貢獻者清單 |
+| `list_commits` | `GET /repos/{owner}/{repo}/commits` | commit 歷史 |
+| `search_code` | `GET /search/code` | 跨 repo 原始碼搜尋 |
+| `search_users` | `GET /search/users` | 搜尋開發者/組織 |
+| `search_issues` | `GET /search/issues` | 跨 repo issue/PR 搜尋 |
+| `get_readme` | `GET /repos/{owner}/{repo}/readme` | 取得並解碼 README 內容 |
 
 ---
 

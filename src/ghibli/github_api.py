@@ -14,6 +14,19 @@ _TOOL_MAP: dict[str, tuple[str, str]] = {
     "list_pull_requests": ("GET", "/repos/{owner}/{repo}/pulls"),
     "get_user": ("GET", "/users/{username}"),
     "list_releases": ("GET", "/repos/{owner}/{repo}/releases"),
+    # Extended tools
+    "get_languages": ("GET", "/repos/{owner}/{repo}/languages"),
+    "list_contributors": ("GET", "/repos/{owner}/{repo}/contributors"),
+    "list_commits": ("GET", "/repos/{owner}/{repo}/commits"),
+    "search_code": ("GET", "/search/code"),
+    "search_users": ("GET", "/search/users"),
+    "search_issues": ("GET", "/search/issues"),
+    "get_readme": ("GET", "/repos/{owner}/{repo}/readme"),
+}
+
+# Per-tool Accept header overrides (default: application/vnd.github+json)
+_TOOL_ACCEPT: dict[str, str] = {
+    "search_code": "application/vnd.github.text-match+json",
 }
 
 _PATH_PARAM_RE = re.compile(r"\{(\w+)\}")
@@ -35,7 +48,7 @@ def execute(tool_name: str, args: dict) -> dict | list:
 
     headers: dict[str, str] = {
         "User-Agent": "ghibli/0.1.0",
-        "Accept": "application/vnd.github+json",
+        "Accept": _TOOL_ACCEPT.get(tool_name, "application/vnd.github+json"),
         "X-GitHub-Api-Version": "2022-11-28",
     }
 

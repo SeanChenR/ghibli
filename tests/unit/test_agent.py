@@ -1,3 +1,4 @@
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -142,3 +143,75 @@ def test_session_history_appended_after_response(monkeypatch):
     calls = [c.args for c in mock_append.call_args_list]
     assert calls[0] == ("sess-1", "user", "hi")
     assert calls[1] == ("sess-1", "assistant", "Got it!")
+
+
+# --- Ollama Cloud routing ---
+
+def _make_litellm_response(content: str) -> MagicMock:
+    msg = MagicMock()
+    msg.tool_calls = None
+    msg.content = content
+    choice = MagicMock()
+    choice.message = msg
+    resp = MagicMock()
+    resp.choices = [choice]
+    return resp
+
+
+def test_ollama_cloud_routing_uses_litellm(monkeypatch):
+    """GHIBLI_MODEL=ollama:<model> must route through LiteLLM, not Gemini SDK."""
+    monkeypatch.setenv("GHIBLI_MODEL", "ollama:llama3.1:8b")
+    monkeypatch.setenv("OLLAMA_API_KEY", "test-ollama-key")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    with patch("ghibli.agent.litellm.completion", return_value=_make_litellm_response("Hi!")) as mock_litellm:
+        with patch("ghibli.agent.genai.Client") as mock_gemini:
+            result = chat("hello", "s1", False)
+
+    mock_litellm.assert_called_once()
+    mock_gemini.assert_not_called()
+    assert result == "Hi!"
+
+
+def test_ollama_cloud_model_id_constructed_correctly(monkeypatch):
+    """Model ID passed to LiteLLM must be ollama_chat/<slug> and api_base set."""
+    monkeypatch.setenv("GHIBLI_MODEL", "ollama:qwen2.5:7b")
+    monkeypatch.setenv("OLLAMA_API_KEY", "test-key")
+
+    with patch("ghibli.agent.litellm.completion", return_value=_make_litellm_response("ok")) as mock_lit:
+        chat("test", "s1", False)
+
+    kwargs = mock_lit.call_args[1]
+    assert kwargs["model"] == "ollama_chat/qwen2.5:7b"
+    assert kwargs["api_base"] == "https://ollama.com"
+    assert kwargs["api_key"] == "test-key"
+
+
+def test_ollama_cloud_missing_api_key_raises(monkeypatch):
+    """Missing OLLAMA_API_KEY must raise ToolCallError with helpful message."""
+    monkeypatch.setenv("GHIBLI_MODEL", "ollama:llama3.1:8b")
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    with pytest.raises(ToolCallError) as exc_info:
+        chat("hello", "s1", False)
+
+    assert "OLLAMA_API_KEY" in str(exc_info.value)
+
+
+def test_ollama_cloud_session_saved(monkeypatch):
+    """Ollama Cloud path must save user + assistant turns to the session."""
+    monkeypatch.setenv("GHIBLI_MODEL", "ollama:llama3.1:8b")
+    monkeypatch.setenv("OLLAMA_API_KEY", "test-key")
+
+    with patch("ghibli.agent.litellm.completion", return_value=_make_litellm_response("Done!")):
+        with patch("ghibli.agent.sessions.get_turns", return_value=[]) as mock_get:
+            with patch("ghibli.agent.sessions.append_turn") as mock_append:
+                result = chat("query", "sess-2", False)
+
+    mock_get.assert_called_once_with("sess-2")
+    assert mock_append.call_count == 2
+    calls = [c.args for c in mock_append.call_args_list]
+    assert calls[0] == ("sess-2", "user", "query")
+    assert calls[1] == ("sess-2", "assistant", "Done!")
+    assert result == "Done!"

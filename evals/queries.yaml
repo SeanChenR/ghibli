@@ -1,213 +1,443 @@
 # ghibli eval query catalog
-# 30 test cases across 5 categories (6 each)
-# category: fuzzy | typo | contradiction | multilingual | multi_step
+# 30 test cases across 6 categories (5 each)
+# category: qualifier | temporal | typo | contradiction | multi_step | tool_selection
+#
+# qualifier:      測試 LLM 是否能將自然語言語意精確對應到 GitHub API 特定 qualifier
+# temporal:       測試時間語意推理（pushed: vs created:、日期範圍、相對時間計算）
+# typo:           測試 typo 自動修正後再呼叫正確工具
+# contradiction:  測試邏輯上不可能的查詢，模型應解釋而非呼叫工具（含一個 TRAP）
+# multi_step:     測試多步驟工具串接，部分包含新增工具
+# tool_selection: 測試在 13 個工具中選出正確工具的能力（核心 hardening edge case）
+#
+# ground_truth.tool: one of the 13 tool names, or "none" (model should explain without calling)
+# ground_truth.tool_sequence: ordered list for multi-step queries (judge checks subsequence)
 
-- id: fuzzy-001
-  category: fuzzy
-  query: "找個好用的前端框架"
-  expected_behavior: "calls search_repositories with some frontend-related query string"
-  difficulty: hard
-  notes: "模糊輸入，沒有明確語言或條件，Gemini 需要自行猜測搜尋詞"
+# ──────────────────────────────────────────────────────────────
+# Category 1: qualifier (5)
+# 測試 LLM 對 GitHub Search API qualifier 的精確對應能力
+# ──────────────────────────────────────────────────────────────
 
-- id: fuzzy-002
-  category: fuzzy
-  query: "最近很紅的 AI 工具"
-  expected_behavior: "calls search_repositories with AI/ML related query"
-  difficulty: hard
-  notes: "『最近很紅』是時間性且主觀的條件，GitHub API 無法依時間熱度排序"
-
-- id: fuzzy-003
-  category: fuzzy
-  query: "幫我找個 Python 好用的 library"
-  expected_behavior: "calls search_repositories with python and some functional keyword"
+- id: qualifier-001
+  category: qualifier
+  query: "找使用 MIT License、超過 5000 顆星的 Rust 系統工具"
+  expected_behavior: "calls search_repositories with license:mit language:rust stars:>5000"
   difficulty: medium
-  notes: "『好用』是主觀條件，Gemini 可能以 star 數或 topic 推測"
+  notes: |
+    「MIT License」必須對應到 SPDX ID license:mit，
+    而非 license:MIT-License 或其他錯誤形式。
+    測試 LLM 是否知道 GitHub API 使用 SPDX 識別碼。
+  ground_truth:
+    tool: search_repositories
+    params:
+      q_contains: "rust"
 
-- id: fuzzy-004
-  category: fuzzy
-  query: "找個有趣的開源專案"
-  expected_behavior: "calls search_repositories with some general query"
-  difficulty: hard
-  notes: "『有趣』完全主觀，沒有任何 API 參數可對應"
-
-- id: fuzzy-005
-  category: fuzzy
-  query: "想看看最受歡迎的東西"
-  expected_behavior: "calls search_repositories sorted by stars"
+- id: qualifier-002
+  category: qualifier
+  query: "幫我找仍在維護的 Vue.js 元件庫，不要已經廢棄或封存的專案"
+  expected_behavior: "calls search_repositories with vue components archived:false"
   difficulty: medium
-  notes: "『最受歡迎』可以對應 sort:stars，但主題不明確"
+  notes: |
+    「廢棄/封存」應對應到 archived:false。
+    預設搜尋會包含 archived repo；測試 LLM 能否識別語意並加上此 qualifier。
+  ground_truth:
+    tool: search_repositories
+    params:
+      q_contains: "vue"
 
-- id: fuzzy-006
-  category: fuzzy
-  query: "有沒有什麼值得學習的 repo"
-  expected_behavior: "calls search_repositories with some educational/learning related query"
+- id: qualifier-003
+  category: qualifier
+  query: "找 README 裡有提到 'zero dependencies' 的輕量 JavaScript 工具"
+  expected_behavior: "calls search_repositories with 'zero dependencies in:readme language:javascript'"
   difficulty: hard
-  notes: "『值得學習』是主觀判斷，Gemini 需要自行決定搜尋方向"
+  notes: |
+    「README 裡提到」應對應到 in:readme qualifier。
+    若不加 in:readme 則只搜尋 repo 名稱和 description，
+    測試 LLM 是否知道可以限定搜尋範圍到 readme 內容。
+    Hardened: 之前 Gemini 直接從訓練資料回答而沒有呼叫工具，應強制呼叫 API。
+  ground_truth:
+    tool: search_repositories
+    params:
+      q_contains: "javascript"
+
+- id: qualifier-004
+  category: qualifier
+  query: "我想為開源貢獻程式碼，找有超過 10 個 good first issue 的 Python 新手友好專案"
+  expected_behavior: "calls search_repositories with language:python good-first-issues:>10"
+  difficulty: hard
+  notes: |
+    「good first issue」應對應到 good-first-issues:>10 qualifier。
+    這是少見但語意直接的 qualifier；
+    測試 LLM 是否知道此 qualifier 的存在而非僅用 stars:>N 代替。
+  ground_truth:
+    tool: search_repositories
+    params:
+      q_contains: "python"
+
+- id: qualifier-005
+  category: qualifier
+  query: "找使用 Apache-2.0 授權、最近六個月仍有人在維護的 Go 微服務框架"
+  expected_behavior: "calls search_repositories with license:apache-2.0 language:go pushed:>2025-10-22"
+  difficulty: hard
+  notes: |
+    複合 qualifier：license:apache-2.0 + language:go + pushed: 日期。
+    「最近六個月」需換算為 pushed:>2025-10-22（2026-04-22 往前六個月）。
+    測試 LLM 是否能同時處理多個 qualifier 並正確計算相對時間。
+  ground_truth:
+    tool: search_repositories
+    params:
+      q_contains: "go"
+
+# ──────────────────────────────────────────────────────────────
+# Category 2: temporal (5)
+# 測試時間語意推理：pushed: 與 created: 的區別、日期範圍、相對時間計算
+# ──────────────────────────────────────────────────────────────
+
+- id: temporal-001
+  category: temporal
+  query: "找 2025 年才建立、但 star 數已超過 1000 的新興 AI coding tool"
+  expected_behavior: "calls search_repositories with created:>2025-01-01 stars:>1000"
+  difficulty: medium
+  notes: |
+    同時用 created:>2025-01-01 限定「新的」和 stars:>1000 限定「已有影響力」。
+    測試 LLM 能否正確使用 created: qualifier。
+  ground_truth:
+    tool: search_repositories
+    params:
+      q_contains: "AI"
+
+- id: temporal-002
+  category: temporal
+  query: "找最近三個月內仍有人更新的 Kubernetes operator，確認還在積極維護"
+  expected_behavior: "calls search_repositories with kubernetes operator pushed:>2026-01-22"
+  difficulty: hard
+  notes: |
+    「最近三個月內有人更新」應對應 pushed: qualifier（最後 push 時間），
+    而非 created:（建立時間）。
+    測試 LLM 能否區分「維護活躍度」（pushed）與「建立時間」（created）的語意差異。
+  ground_truth:
+    tool: search_repositories
+    params:
+      q_contains: "kubernetes"
+
+- id: temporal-003
+  category: temporal
+  query: "搜尋 2021 年到 2022 年之間建立的 GraphQL 框架"
+  expected_behavior: "calls search_repositories with graphql framework created:2021-01-01..2022-12-31"
+  difficulty: medium
+  notes: |
+    「A 年到 B 年」應對應 GitHub API 的 .. 範圍語法（created:2021-01-01..2022-12-31），
+    而非兩個獨立 qualifier。測試 LLM 是否知道 GitHub Search API 的日期範圍語法。
+  ground_truth:
+    tool: search_repositories
+    params:
+      q_contains: "graphql"
+
+- id: temporal-004
+  category: temporal
+  query: "找超過五年都沒有更新但仍有大量 star 的 PHP legacy 框架"
+  expected_behavior: "calls search_repositories with php framework pushed:<2021-01-01 stars:>2000"
+  difficulty: hard
+  notes: |
+    「五年都沒更新」以今年（2026）計算應為 pushed:<2021-01-01。
+    測試 LLM 是否能正確計算相對時間並轉換為絕對日期。
+  ground_truth:
+    tool: search_repositories
+    params:
+      q_contains: "php"
+
+- id: temporal-005
+  category: temporal
+  query: "找 2024 年整年建立、現在已有超過 2000 顆星的 TypeScript 全端框架"
+  expected_behavior: "calls search_repositories with typescript created:2024-01-01..2024-12-31 stars:>2000"
+  difficulty: hard
+  notes: |
+    「2024 年整年」需轉成 created:2024-01-01..2024-12-31 範圍語法，而非 created:>2024-01-01。
+    同時結合 stars:>2000 條件，測試複合 temporal + qualifier 語意解析。
+  ground_truth:
+    tool: search_repositories
+    params:
+      q_contains: "typescript"
+
+# ──────────────────────────────────────────────────────────────
+# Category 3: typo (5)
+# 測試 LLM 在呼叫 API 前自動修正 typo 的能力
+# ──────────────────────────────────────────────────────────────
 
 - id: typo-001
   category: typo
   query: "pytohn 最多星星的 repo"
-  expected_behavior: "corrects typo and calls search_repositories with language:python sort:stars"
+  expected_behavior: "corrects pytohn→python, calls search_repositories with language:python sorted by stars"
   difficulty: easy
-  notes: "pytohn 是 python 的常見拼字錯誤，Gemini 應能識別"
+  notes: "pytohn 是 python 的常見拼字錯誤（字母對調）"
+  ground_truth:
+    tool: search_repositories
+    params:
+      q_contains: "python"
 
 - id: typo-002
   category: typo
-  query: "javascrpit 框架"
-  expected_behavior: "corrects typo and calls search_repositories with javascript framework query"
+  query: "找 djangoo 相關的 web 框架"
+  expected_behavior: "corrects djangoo→django, calls search_repositories with django web framework"
   difficulty: easy
-  notes: "javascrpit 是 javascript 的常見拼字錯誤"
+  notes: "djangoo 多一個 o，是 django 的常見拼字錯誤"
+  ground_truth:
+    tool: search_repositories
+    params:
+      q_contains: "django"
 
 - id: typo-003
   category: typo
   query: "facebok/react 的 open issues"
-  expected_behavior: "calls list_issues for facebook/react (corrects facebok→facebook)"
+  expected_behavior: "corrects facebok→facebook, calls list_issues for facebook/react"
   difficulty: easy
-  notes: "facebok 少一個 o，是 facebook 的常見拼字錯誤，語意明確"
+  notes: "facebok 少一個 o，是 facebook 的常見拼字錯誤，語意明確指向特定 repo"
+  ground_truth:
+    tool: list_issues
+    params:
+      owner: "facebook"
+      repo: "react"
 
 - id: typo-004
   category: typo
-  query: "facebook/reakt 的 issues"
-  expected_behavior: "calls list_issues for facebook/react (corrects reakt→react)"
+  query: "microsfot/vscode 最新的 PR"
+  expected_behavior: "corrects microsfot→microsoft, calls list_pull_requests for microsoft/vscode"
   difficulty: medium
-  notes: "reakt 是 react 的拼字錯誤，需要辨識正確的 org/repo"
+  notes: "microsfot 是 microsoft 的常見拼字錯誤（sf 字母對調）"
+  ground_truth:
+    tool: list_pull_requests
+    params:
+      owner: "microsoft"
+      repo: "vscode"
 
 - id: typo-005
   category: typo
-  query: "找 flaskk 的 release"
-  expected_behavior: "calls list_releases for pallets/flask (corrects flaskk)"
-  difficulty: easy
-  notes: "flaskk 多一個 k，Gemini 應能識別並修正；flask 在 GitHub 有正式 release"
-
-- id: typo-006
-  category: typo
-  query: "microsfot/vscode 的 PR"
-  expected_behavior: "calls list_pull_requests for microsoft/vscode (corrects microsfot)"
+  query: "找 flaskk 的最新 release"
+  expected_behavior: "corrects flaskk→flask, searches for pallets/flask, then calls list_releases"
   difficulty: medium
-  notes: "microsfot 是 microsoft 的常見拼字錯誤（sf 對調）"
+  notes: |
+    flaskk 多一個 k；flask 的官方 org 是 pallets（非 flask）。
+    需推斷 owner 為 pallets 後才能呼叫 list_releases。
+  ground_truth:
+    tool: list_releases
+    params:
+      owner: "pallets"
+      repo: "flask"
+
+# ──────────────────────────────────────────────────────────────
+# Category 4: contradiction (5)
+# 測試邏輯不可能的查詢（模型應說明並拒絕呼叫）+ 一個 TRAP（看似矛盾但實際可行）
+# ──────────────────────────────────────────────────────────────
 
 - id: contradiction-001
   category: contradiction
   query: "找 star 超過 100 萬的 repo"
-  expected_behavior: "calls search_repositories but returns empty results (no repo has 1M+ stars)"
+  expected_behavior: "explains that no repo has 1M+ stars; does not call any tool"
   difficulty: medium
-  notes: "GitHub 上沒有 star 超過 100 萬的 repo，API 會回傳空結果而非錯誤"
+  notes: "GitHub 最多約 24 萬 star（torvalds/linux），100 萬不可能；模型應解釋而非搜尋"
+  ground_truth:
+    tool: none
 
 - id: contradiction-002
   category: contradiction
   query: "列出一個同時是 open 又是 closed 的 PR"
-  expected_behavior: "cannot satisfy this condition; may call list_pull_requests with one state"
+  expected_behavior: "explains that a PR cannot be both open and closed simultaneously"
   difficulty: hard
-  notes: "PR 狀態互斥，邏輯上不可能同時為 open 和 closed"
+  notes: "PR 狀態互斥，邏輯上不可能同時為 open 和 closed；模型應說明不呼叫工具"
+  ground_truth:
+    tool: none
 
 - id: contradiction-003
   category: contradiction
   query: "找一個 2090 年建立的 repo"
-  expected_behavior: "calls search_repositories but returns empty (no future-dated repos)"
+  expected_behavior: "explains that 2090 is a future date; does not call any tool"
   difficulty: medium
-  notes: "2090 年是未來，GitHub 沒有這樣的 repo"
+  notes: "2090 年是未來，不可能有 repo；模型應解釋時間矛盾"
+  ground_truth:
+    tool: none
 
 - id: contradiction-004
   category: contradiction
-  query: "搜尋沒有任何 commit 但有 100 萬 star 的 repo"
-  expected_behavior: "calls search_repositories but returns empty (impossible combination)"
+  query: "找 fork 數是 star 數 1000 倍的熱門 JavaScript 框架"
+  expected_behavior: "explains that forks cannot be 1000x stars; does not call any tool"
   difficulty: hard
-  notes: "沒有 commit 的 repo 不可能有百萬 star，條件自相矛盾"
+  notes: |
+    Fork 數幾乎不可能超過 star 數（通常是 star 的 5-20%）；
+    1000 倍的 fork 數從未存在。模型應識別此為不可能條件。
+  ground_truth:
+    tool: none
 
 - id: contradiction-005
   category: contradiction
-  query: "找一個 fork 數比 star 數多 1000 倍的 repo"
-  expected_behavior: "calls search_repositories but returns empty or near-empty results"
+  query: "找 star 數是 fork 數 20 倍以上的熱門 Python 框架"
+  expected_behavior: "calls search_repositories — this is NOT a contradiction, star >> fork is normal"
   difficulty: hard
-  notes: "fork 數通常遠少於 star 數，1000 倍差距幾乎不可能存在"
+  notes: |
+    TRAP QUERY：star >> fork 是完全正常的情況（大多數熱門 repo 的比例都超過 20:1）。
+    模型「不應」識別這為矛盾；應直接呼叫 search_repositories 搜尋。
+    測試模型是否錯誤地將「正常現象」判斷為不可能，從而拒絕呼叫工具。
+  ground_truth:
+    tool: search_repositories
+    params:
+      q_contains: "python"
 
-- id: contradiction-006
-  category: contradiction
-  query: "列出 0 個 follower 但 following 100 萬人的 user"
-  expected_behavior: "calls search_users or get_user but returns no results"
-  difficulty: hard
-  notes: "following 100 萬人的帳號必然有很多 follower，條件矛盾"
-
-- id: multilingual-001
-  category: multilingual
-  query: "Pythonのリポジトリを検索して"
-  expected_behavior: "calls search_repositories with language:python or python-related query"
-  difficulty: medium
-  notes: "日文輸入：「搜尋 Python 的 repository」，測試 Gemini 是否能理解日文並呼叫正確工具"
-
-- id: multilingual-002
-  category: multilingual
-  query: "파이썬 레포지토리 검색해줘"
-  expected_behavior: "calls search_repositories with python-related query"
-  difficulty: medium
-  notes: "韓文輸入：「搜尋 Python repository」，測試韓文理解與工具呼叫"
-
-- id: multilingual-003
-  category: multilingual
-  query: "找一下 tensorflow 的 issues"
-  expected_behavior: "calls list_issues for tensorflow/tensorflow"
-  difficulty: easy
-  notes: "繁體中文輸入，應正確識別 org/repo 並呼叫 list_issues"
-
-- id: multilingual-004
-  category: multilingual
-  query: "tensorflow issues 찾아줘"
-  expected_behavior: "calls list_issues for tensorflow/tensorflow"
-  difficulty: medium
-  notes: "韓文：「找 tensorflow 的 issues」，混合英文技術詞彙與韓文動詞"
-
-- id: multilingual-005
-  category: multilingual
-  query: "torvaldsのプロフィールを見せて"
-  expected_behavior: "calls get_user for torvalds"
-  difficulty: medium
-  notes: "日文：「顯示 torvalds 的個人資料」，測試日文與 GitHub username 的組合識別"
-
-- id: multilingual-006
-  category: multilingual
-  query: "最も星が多いJavaScriptフレームワーク"
-  expected_behavior: "calls search_repositories with javascript framework sorted by stars"
-  difficulty: hard
-  notes: "完整日文輸入：「star 最多的 JavaScript 框架」，無英文混雜，測試純日文理解"
+# ──────────────────────────────────────────────────────────────
+# Category 5: multi_step (5)
+# 測試多步驟工具串接；部分涉及新增工具（list_commits, search_users）
+# ──────────────────────────────────────────────────────────────
 
 - id: multi_step-001
   category: multi_step
-  query: "找最多 star 的 Python repo，然後告訴我它最新的 release"
-  expected_behavior: "calls search_repositories then list_releases for the top result"
+  query: "找 star 最多的 Python 機器學習框架，再看它有哪些 open PR"
+  expected_behavior: "calls search_repositories for ML framework, then list_pull_requests for top result"
   difficulty: medium
-  notes: "需要兩步：先搜尋找到 repo，再查詢該 repo 的 release"
+  notes: |
+    兩步：search_repositories → list_pull_requests。
+    測試 LLM 能否從搜尋結果中取得 owner/repo，再用於下一個工具呼叫。
+  ground_truth:
+    tool: list_pull_requests
+    tool_sequence:
+      - search_repositories
+      - list_pull_requests
 
 - id: multi_step-002
   category: multi_step
-  query: "查一下 torvalds 的 GitHub 個人資料，然後看看他的 linux repo 有什麼 open issue"
-  expected_behavior: "calls get_user for torvalds, then list_issues for torvalds/linux"
+  query: "先取得 torvalds/linux 的 repo 詳細資訊，再看最近 5 個 commit"
+  expected_behavior: "calls get_repository for torvalds/linux, then list_commits per_page:5"
   difficulty: medium
-  notes: "兩步查詢：使用者資訊 + 指定 repo 的 issues"
+  notes: |
+    兩步：get_repository → list_commits。
+    测試 LLM 能否正確串接 get_repository（metadata）和 list_commits（history）。
+  ground_truth:
+    tool: list_commits
+    params:
+      owner: "torvalds"
+      repo: "linux"
+    tool_sequence:
+      - get_repository
+      - list_commits
 
 - id: multi_step-003
   category: multi_step
-  query: "搜尋 React 相關 repo，找出 star 最多的那個，再列出它的最新 3 個 release"
-  expected_behavior: "calls search_repositories for React, then list_releases for top result"
+  query: "找 star 最多的 Go web framework，先取得它的 repo 資訊，再看最近有哪些 release"
+  expected_behavior: "calls search_repositories for Go web framework, then get_repository, then list_releases"
   difficulty: hard
-  notes: "三步：搜尋→選最高分→查 release；需要 Gemini 從搜尋結果中挑選並繼續查詢"
+  notes: |
+    三步查詢：search_repositories → get_repository → list_releases。
+    測試 LLM 在三步驟中持續追蹤正確的 owner/repo context。
+  ground_truth:
+    tool: list_releases
+    tool_sequence:
+      - search_repositories
+      - get_repository
+      - list_releases
 
 - id: multi_step-004
   category: multi_step
-  query: "先找 microsoft/vscode 的資訊，再看它有哪些 open PR"
-  expected_behavior: "calls get_repository for microsoft/vscode, then list_pull_requests with state:open"
-  difficulty: easy
-  notes: "兩步：repo 基本資訊 + open PR 列表"
+  query: "查詢 yyx990803 的 GitHub 個人資料，再看 vuejs/vue 這個 repo 的詳細資訊"
+  expected_behavior: "calls get_user for yyx990803 (Evan You), then get_repository for vuejs/vue"
+  difficulty: medium
+  notes: |
+    yyx990803 是 Evan You（Vue.js 作者）的 GitHub username，
+    兩步：get_user → get_repository
+  ground_truth:
+    tool: get_repository
+    params:
+      owner: "vuejs"
+      repo: "vue"
+    tool_sequence:
+      - get_user
+      - get_repository
 
 - id: multi_step-005
   category: multi_step
-  query: "查詢 tiangolo 的使用者資訊，再列出 fastapi/fastapi 這個 repo 的 releases"
-  expected_behavior: "calls get_user for tiangolo, then list_releases for fastapi/fastapi"
-  difficulty: medium
-  notes: "兩步查詢；fastapi/fastapi 是 FastAPI 的官方 repo（已從 tiangolo/fastapi 遷移），有正式 GitHub release"
-
-- id: multi_step-006
-  category: multi_step
-  query: "找 star 最多的 Go web framework，然後看看它最近的 issue"
-  expected_behavior: "calls search_repositories for Go web framework sorted by stars, then list_issues"
+  query: "找 GitHub 上 follower 最多的 Go 語言開發者，再看他的 GitHub 個人資料"
+  expected_behavior: "calls search_users for Go developers sorted by followers, then get_user"
   difficulty: hard
-  notes: "兩步：搜尋找到最多星 Go web framework，再查 issues；需要 Gemini 從結果中取出 org/repo"
+  notes: |
+    兩步：search_users → get_user。
+    「找人」應使用 search_users（不是 search_repositories）；
+    取到排名第一的 username 後，再呼叫 get_user 取詳細資料。
+  ground_truth:
+    tool: get_user
+    tool_sequence:
+      - search_users
+      - get_user
+
+# ──────────────────────────────────────────────────────────────
+# Category 6: tool_selection (5)
+# 核心 hardening：在 13 個工具中選出正確工具
+# 每條 query 都有一個「誘人的錯誤工具」，測試模型能否做出正確選擇
+# ──────────────────────────────────────────────────────────────
+
+- id: tool_selection-001
+  category: tool_selection
+  query: "pallets/flask 的程式碼用了哪些語言？Python 大概佔幾 bytes？"
+  expected_behavior: "calls get_languages(owner=pallets, repo=flask) — NOT get_repository"
+  difficulty: medium
+  notes: |
+    誘人的錯誤工具：get_repository（它的 language 欄位只回傳主要語言字串）。
+    get_languages 才能回傳完整語言分布（bytes of code per language）。
+    測試模型是否知道兩個工具在語言資訊上的差異。
+  ground_truth:
+    tool: get_languages
+    params:
+      owner: "pallets"
+      repo: "flask"
+
+- id: tool_selection-002
+  category: tool_selection
+  query: "找目前 GitHub 上所有 Python repo 裡開放中、標記了 good-first-issue 的 issue"
+  expected_behavior: "calls search_issues with is:issue label:good-first-issue language:python is:open"
+  difficulty: hard
+  notes: |
+    誘人的錯誤工具：list_issues（只能查單一 repo）。
+    「所有 Python repo 裡的 issue」是跨 repo 搜尋，必須用 search_issues。
+    這是之前 GPT-4o-mini 的實際 failure case（錯誤使用了 list_issues）。
+  ground_truth:
+    tool: search_issues
+    params:
+      q_contains: "python"
+
+- id: tool_selection-003
+  category: tool_selection
+  query: "GitHub 上有哪些 Python 程式碼使用了 asyncio.run 這個函數？"
+  expected_behavior: "calls search_code with q='asyncio.run language:python'"
+  difficulty: medium
+  notes: |
+    誘人的錯誤工具：search_repositories（只能搜尋 repo 元資料）。
+    「程式碼裡有用到某個函數」是在搜尋原始碼內容，必須用 search_code。
+    測試模型是否能區分「搜 repo」和「搜 code」的適用場景。
+  ground_truth:
+    tool: search_code
+    params:
+      q_contains: "asyncio.run"
+
+- id: tool_selection-004
+  category: tool_selection
+  query: "我想了解 pallets/flask 這個專案，幫我看看它的 README 說了什麼"
+  expected_behavior: "calls get_readme(owner=pallets, repo=flask) — NOT get_repository"
+  difficulty: medium
+  notes: |
+    誘人的錯誤工具：get_repository（不包含 README 文字內容）。
+    get_readme 才能回傳解碼後的 README Markdown 文字。
+    測試模型是否知道有獨立的 get_readme 工具。
+  ground_truth:
+    tool: get_readme
+    params:
+      owner: "pallets"
+      repo: "flask"
+
+- id: tool_selection-005
+  category: tool_selection
+  query: "找 star 最多的 Python 資料視覺化 repo，再看它的完整語言分布"
+  expected_behavior: "calls search_repositories then get_languages for the top result"
+  difficulty: hard
+  notes: |
+    兩步：search_repositories → get_languages。
+    「完整語言分布」需要 get_languages，不是 get_repository 的 language 欄位。
+    測試模型能否在多步驟中正確選擇 get_languages 而非 get_repository。
+  ground_truth:
+    tool: get_languages
+    tool_sequence:
+      - search_repositories
+      - get_languages
