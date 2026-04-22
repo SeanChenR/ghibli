@@ -1,0 +1,213 @@
+# ghibli eval query catalog
+# 30 test cases across 5 categories (6 each)
+# category: fuzzy | typo | contradiction | multilingual | multi_step
+
+- id: fuzzy-001
+  category: fuzzy
+  query: "找個好用的前端框架"
+  expected_behavior: "calls search_repositories with some frontend-related query string"
+  difficulty: hard
+  notes: "模糊輸入，沒有明確語言或條件，Gemini 需要自行猜測搜尋詞"
+
+- id: fuzzy-002
+  category: fuzzy
+  query: "最近很紅的 AI 工具"
+  expected_behavior: "calls search_repositories with AI/ML related query"
+  difficulty: hard
+  notes: "『最近很紅』是時間性且主觀的條件，GitHub API 無法依時間熱度排序"
+
+- id: fuzzy-003
+  category: fuzzy
+  query: "幫我找個 Python 好用的 library"
+  expected_behavior: "calls search_repositories with python and some functional keyword"
+  difficulty: medium
+  notes: "『好用』是主觀條件，Gemini 可能以 star 數或 topic 推測"
+
+- id: fuzzy-004
+  category: fuzzy
+  query: "找個有趣的開源專案"
+  expected_behavior: "calls search_repositories with some general query"
+  difficulty: hard
+  notes: "『有趣』完全主觀，沒有任何 API 參數可對應"
+
+- id: fuzzy-005
+  category: fuzzy
+  query: "想看看最受歡迎的東西"
+  expected_behavior: "calls search_repositories sorted by stars"
+  difficulty: medium
+  notes: "『最受歡迎』可以對應 sort:stars，但主題不明確"
+
+- id: fuzzy-006
+  category: fuzzy
+  query: "有沒有什麼值得學習的 repo"
+  expected_behavior: "calls search_repositories with some educational/learning related query"
+  difficulty: hard
+  notes: "『值得學習』是主觀判斷，Gemini 需要自行決定搜尋方向"
+
+- id: typo-001
+  category: typo
+  query: "pytohn 最多星星的 repo"
+  expected_behavior: "corrects typo and calls search_repositories with language:python sort:stars"
+  difficulty: easy
+  notes: "pytohn 是 python 的常見拼字錯誤，Gemini 應能識別"
+
+- id: typo-002
+  category: typo
+  query: "javascrpit 框架"
+  expected_behavior: "corrects typo and calls search_repositories with javascript framework query"
+  difficulty: easy
+  notes: "javascrpit 是 javascript 的常見拼字錯誤"
+
+- id: typo-003
+  category: typo
+  query: "facebok/react 的 open issues"
+  expected_behavior: "calls list_issues for facebook/react (corrects facebok→facebook)"
+  difficulty: easy
+  notes: "facebok 少一個 o，是 facebook 的常見拼字錯誤，語意明確"
+
+- id: typo-004
+  category: typo
+  query: "facebook/reakt 的 issues"
+  expected_behavior: "calls list_issues for facebook/react (corrects reakt→react)"
+  difficulty: medium
+  notes: "reakt 是 react 的拼字錯誤，需要辨識正確的 org/repo"
+
+- id: typo-005
+  category: typo
+  query: "找 flaskk 的 release"
+  expected_behavior: "calls list_releases for pallets/flask (corrects flaskk)"
+  difficulty: easy
+  notes: "flaskk 多一個 k，Gemini 應能識別並修正；flask 在 GitHub 有正式 release"
+
+- id: typo-006
+  category: typo
+  query: "microsfot/vscode 的 PR"
+  expected_behavior: "calls list_pull_requests for microsoft/vscode (corrects microsfot)"
+  difficulty: medium
+  notes: "microsfot 是 microsoft 的常見拼字錯誤（sf 對調）"
+
+- id: contradiction-001
+  category: contradiction
+  query: "找 star 超過 100 萬的 repo"
+  expected_behavior: "calls search_repositories but returns empty results (no repo has 1M+ stars)"
+  difficulty: medium
+  notes: "GitHub 上沒有 star 超過 100 萬的 repo，API 會回傳空結果而非錯誤"
+
+- id: contradiction-002
+  category: contradiction
+  query: "列出一個同時是 open 又是 closed 的 PR"
+  expected_behavior: "cannot satisfy this condition; may call list_pull_requests with one state"
+  difficulty: hard
+  notes: "PR 狀態互斥，邏輯上不可能同時為 open 和 closed"
+
+- id: contradiction-003
+  category: contradiction
+  query: "找一個 2090 年建立的 repo"
+  expected_behavior: "calls search_repositories but returns empty (no future-dated repos)"
+  difficulty: medium
+  notes: "2090 年是未來，GitHub 沒有這樣的 repo"
+
+- id: contradiction-004
+  category: contradiction
+  query: "搜尋沒有任何 commit 但有 100 萬 star 的 repo"
+  expected_behavior: "calls search_repositories but returns empty (impossible combination)"
+  difficulty: hard
+  notes: "沒有 commit 的 repo 不可能有百萬 star，條件自相矛盾"
+
+- id: contradiction-005
+  category: contradiction
+  query: "找一個 fork 數比 star 數多 1000 倍的 repo"
+  expected_behavior: "calls search_repositories but returns empty or near-empty results"
+  difficulty: hard
+  notes: "fork 數通常遠少於 star 數，1000 倍差距幾乎不可能存在"
+
+- id: contradiction-006
+  category: contradiction
+  query: "列出 0 個 follower 但 following 100 萬人的 user"
+  expected_behavior: "calls search_users or get_user but returns no results"
+  difficulty: hard
+  notes: "following 100 萬人的帳號必然有很多 follower，條件矛盾"
+
+- id: multilingual-001
+  category: multilingual
+  query: "Pythonのリポジトリを検索して"
+  expected_behavior: "calls search_repositories with language:python or python-related query"
+  difficulty: medium
+  notes: "日文輸入：「搜尋 Python 的 repository」，測試 Gemini 是否能理解日文並呼叫正確工具"
+
+- id: multilingual-002
+  category: multilingual
+  query: "파이썬 레포지토리 검색해줘"
+  expected_behavior: "calls search_repositories with python-related query"
+  difficulty: medium
+  notes: "韓文輸入：「搜尋 Python repository」，測試韓文理解與工具呼叫"
+
+- id: multilingual-003
+  category: multilingual
+  query: "找一下 tensorflow 的 issues"
+  expected_behavior: "calls list_issues for tensorflow/tensorflow"
+  difficulty: easy
+  notes: "繁體中文輸入，應正確識別 org/repo 並呼叫 list_issues"
+
+- id: multilingual-004
+  category: multilingual
+  query: "tensorflow issues 찾아줘"
+  expected_behavior: "calls list_issues for tensorflow/tensorflow"
+  difficulty: medium
+  notes: "韓文：「找 tensorflow 的 issues」，混合英文技術詞彙與韓文動詞"
+
+- id: multilingual-005
+  category: multilingual
+  query: "torvaldsのプロフィールを見せて"
+  expected_behavior: "calls get_user for torvalds"
+  difficulty: medium
+  notes: "日文：「顯示 torvalds 的個人資料」，測試日文與 GitHub username 的組合識別"
+
+- id: multilingual-006
+  category: multilingual
+  query: "最も星が多いJavaScriptフレームワーク"
+  expected_behavior: "calls search_repositories with javascript framework sorted by stars"
+  difficulty: hard
+  notes: "完整日文輸入：「star 最多的 JavaScript 框架」，無英文混雜，測試純日文理解"
+
+- id: multi_step-001
+  category: multi_step
+  query: "找最多 star 的 Python repo，然後告訴我它最新的 release"
+  expected_behavior: "calls search_repositories then list_releases for the top result"
+  difficulty: medium
+  notes: "需要兩步：先搜尋找到 repo，再查詢該 repo 的 release"
+
+- id: multi_step-002
+  category: multi_step
+  query: "查一下 torvalds 的 GitHub 個人資料，然後看看他的 linux repo 有什麼 open issue"
+  expected_behavior: "calls get_user for torvalds, then list_issues for torvalds/linux"
+  difficulty: medium
+  notes: "兩步查詢：使用者資訊 + 指定 repo 的 issues"
+
+- id: multi_step-003
+  category: multi_step
+  query: "搜尋 React 相關 repo，找出 star 最多的那個，再列出它的最新 3 個 release"
+  expected_behavior: "calls search_repositories for React, then list_releases for top result"
+  difficulty: hard
+  notes: "三步：搜尋→選最高分→查 release；需要 Gemini 從搜尋結果中挑選並繼續查詢"
+
+- id: multi_step-004
+  category: multi_step
+  query: "先找 microsoft/vscode 的資訊，再看它有哪些 open PR"
+  expected_behavior: "calls get_repository for microsoft/vscode, then list_pull_requests with state:open"
+  difficulty: easy
+  notes: "兩步：repo 基本資訊 + open PR 列表"
+
+- id: multi_step-005
+  category: multi_step
+  query: "查詢 tiangolo 的使用者資訊，再列出 fastapi/fastapi 這個 repo 的 releases"
+  expected_behavior: "calls get_user for tiangolo, then list_releases for fastapi/fastapi"
+  difficulty: medium
+  notes: "兩步查詢；fastapi/fastapi 是 FastAPI 的官方 repo（已從 tiangolo/fastapi 遷移），有正式 GitHub release"
+
+- id: multi_step-006
+  category: multi_step
+  query: "找 star 最多的 Go web framework，然後看看它最近的 issue"
+  expected_behavior: "calls search_repositories for Go web framework sorted by stars, then list_issues"
+  difficulty: hard
+  notes: "兩步：搜尋找到最多星 Go web framework，再查 issues；需要 Gemini 從結果中取出 org/repo"
