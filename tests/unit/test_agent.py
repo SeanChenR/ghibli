@@ -215,3 +215,133 @@ def test_ollama_cloud_session_saved(monkeypatch):
     assert calls[0] == ("sess-2", "user", "query")
     assert calls[1] == ("sess-2", "assistant", "Done!")
     assert result == "Done!"
+
+
+# --- OpenAI routing ---
+
+
+def test_openai_routing_uses_litellm(monkeypatch):
+    """GHIBLI_MODEL=openai:<model> must route through LiteLLM, not Gemini SDK."""
+    monkeypatch.setenv("GHIBLI_MODEL", "openai:gpt-4o-mini")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    with patch("ghibli.agent.litellm.completion", return_value=_make_litellm_response("Hi!")) as mock_litellm:
+        with patch("ghibli.agent.genai.Client") as mock_gemini:
+            result = chat("hello", "s1", False)
+
+    mock_litellm.assert_called_once()
+    mock_gemini.assert_not_called()
+    assert result == "Hi!"
+
+
+def test_openai_model_id_constructed_correctly(monkeypatch):
+    """Model ID passed to LiteLLM must be openai/<slug>; no api_base for OpenAI."""
+    monkeypatch.setenv("GHIBLI_MODEL", "openai:gpt-4o-mini")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    with patch("ghibli.agent.litellm.completion", return_value=_make_litellm_response("ok")) as mock_lit:
+        chat("test", "s1", False)
+
+    kwargs = mock_lit.call_args[1]
+    assert kwargs["model"] == "openai/gpt-4o-mini"
+    assert kwargs["api_key"] == "sk-test"
+    assert "api_base" not in kwargs
+
+
+def test_openai_missing_api_key_raises(monkeypatch):
+    """Missing OPENAI_API_KEY must raise ToolCallError with helpful message."""
+    monkeypatch.setenv("GHIBLI_MODEL", "openai:gpt-4o-mini")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    with pytest.raises(ToolCallError) as exc_info:
+        chat("hello", "s1", False)
+
+    assert "OPENAI_API_KEY" in str(exc_info.value)
+
+
+# --- explicit model= param overrides env var ---
+
+
+# --- tool errors are recoverable within a turn ---
+
+
+def _github_api_side_effect(tool_name, args):
+    """Simulate get_repository 404 + search_repositories success."""
+    if tool_name == "get_repository":
+        raise Exception("Client error '404 Not Found'")
+    if tool_name == "search_repositories":
+        return {"items": [{"full_name": "spectra-app/spectra-app"}]}
+    return {}
+
+
+def test_gemini_tool_error_recovers_within_turn(monkeypatch):
+    """When a tool raises, error must be passed back to model (not raise ToolCallError)
+    so the model can retry. Session turns must still be saved at end."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test_key")
+
+    failing_fc = MagicMock()
+    failing_fc.name = "get_repository"
+    failing_fc.args = {"owner": "Spectra-app", "repo": "spectra"}
+
+    retry_fc = MagicMock()
+    retry_fc.name = "search_repositories"
+    retry_fc.args = {"q": "spectra-app"}
+
+    r1 = MagicMock(function_calls=[failing_fc])
+    r2 = MagicMock(function_calls=[retry_fc])
+    r3 = MagicMock(function_calls=[], text="Found it!")
+
+    with patch("ghibli.agent.genai.Client") as MockClient:
+        mock_client = MagicMock()
+        MockClient.return_value = mock_client
+        mock_client.models.generate_content.side_effect = [r1, r2, r3]
+
+        with patch("ghibli.github_api.execute", side_effect=_github_api_side_effect):
+            with patch("ghibli.agent.sessions.append_turn") as mock_append:
+                result = chat("spectra-app repo", "s1", False)
+
+    assert result == "Found it!"
+    assert mock_client.models.generate_content.call_count == 3
+    assert mock_append.call_count == 2  # user + assistant both saved
+
+
+def test_litellm_tool_error_recovers_within_turn(monkeypatch):
+    """Same recovery behavior on OpenAI / Ollama path."""
+    monkeypatch.setenv("GHIBLI_MODEL", "openai:gpt-4o-mini")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    fail_tc = MagicMock()
+    fail_tc.id = "t1"
+    fail_tc.function.name = "get_repository"
+    fail_tc.function.arguments = '{"owner": "Spectra-app", "repo": "spectra"}'
+
+    fail_msg = MagicMock()
+    fail_msg.tool_calls = [fail_tc]
+    fail_msg.content = None
+    r1 = MagicMock(choices=[MagicMock(message=fail_msg)])
+
+    r2 = _make_litellm_response("Recovered!")
+
+    with patch("ghibli.agent.litellm.completion", side_effect=[r1, r2]):
+        with patch("ghibli.github_api.execute", side_effect=_github_api_side_effect):
+            with patch("ghibli.agent.sessions.append_turn") as mock_append:
+                result = chat("spectra-app", "s1", False)
+
+    assert result == "Recovered!"
+    assert mock_append.call_count == 2
+
+
+def test_explicit_model_overrides_env_var(monkeypatch):
+    """model= kwarg must take precedence over GHIBLI_MODEL env var."""
+    monkeypatch.setenv("GHIBLI_MODEL", "gemini-2.5-flash")     # would route to Gemini
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    with patch("ghibli.agent.litellm.completion", return_value=_make_litellm_response("ok")) as mock_lit:
+        with patch("ghibli.agent.genai.Client") as mock_gemini:
+            chat("hello", "s1", False, model="openai:gpt-4o-mini")
+
+    mock_gemini.assert_not_called()
+    assert mock_lit.call_args[1]["model"] == "openai/gpt-4o-mini"

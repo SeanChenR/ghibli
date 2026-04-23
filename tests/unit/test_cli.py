@@ -67,8 +67,21 @@ def test_conversation_loop_calls_agent(runner):
             with patch("ghibli.cli.render_text") as mock_render:
                 result = runner.invoke(app, [], input="search python\n\n")
     assert result.exit_code == 0
-    mock_chat.assert_called_once_with("search python", "stub-id", False)
+    mock_chat.assert_called_once_with("search python", "stub-id", False, model=None)
     mock_render.assert_called_once_with("Some response", False)
+
+
+def test_model_flag_passed_to_agent(runner):
+    with patch("ghibli.sessions.create_session", return_value="stub-id"):
+        with patch("ghibli.agent.chat", return_value="ok") as mock_chat:
+            with patch("ghibli.cli.render_text"):
+                result = runner.invoke(
+                    app, ["--model", "openai:gpt-4o-mini"], input="hi\n\n"
+                )
+    assert result.exit_code == 0
+    mock_chat.assert_called_once_with(
+        "hi", "stub-id", False, model="openai:gpt-4o-mini"
+    )
 
 
 def test_ghibli_error_continues_session(runner):

@@ -32,6 +32,17 @@ def main(
         bool,
         typer.Option("--json", help="Output raw JSON instead of Rich formatting"),
     ] = False,
+    model: Annotated[
+        Optional[str],
+        typer.Option(
+            "--model",
+            help=(
+                "Model to use. Examples: gemini-2.5-flash (default), "
+                "openai:gpt-4o-mini, ollama:llama3.1:8b. "
+                "Overrides GHIBLI_MODEL env var."
+            ),
+        ),
+    ] = None,
     version: Annotated[
         Optional[bool],
         typer.Option(
@@ -77,7 +88,7 @@ def main(
             break
 
         try:
-            response = agent.chat(user_input, session_id, json_output)
+            response = agent.chat(user_input, session_id, json_output, model=model)
             render_text(response, json_output)
         except GhibliError as e:
             typer.echo(f"Error: {e}")

@@ -2,12 +2,6 @@
 
 用自然語言查詢 GitHub，不需要記住 API 格式。
 
-> **Take-Home Assessment 快速索引**
-> - **Part 1 — 執行 CLI 工具**：`uv run ghibli`（詳見[使用方式](#使用方式)）
-> - **Part 2 — 執行 Eval Pipeline**：`uv run python evals/run_evals.py`（詳見 [Eval 框架](#eval-框架part-2-入口)）
-> - **架構決策與取捨**：見[架構決策與取捨](#架構決策與取捨)章節
-> - **已知限制說明**：見[已知限制](#已知限制)章節
-
 ```
 You> 搜尋最多星星的 TypeScript 前端框架
 Ionic Framework 是最受歡迎的 TypeScript 前端框架，它有 52466 顆星。
@@ -15,6 +9,20 @@ Ionic Framework 是最受歡迎的 TypeScript 前端框架，它有 52466 顆星
 You> 可以告訴我它的最新 release 嗎
 Ionic Framework 最新版本是 v8.4.0，發布於 2025-03-12。
 ```
+
+底層是 LLM Function Calling（Gemini / GPT-4o-mini / Gemma-4 / Ollama 可互換）→ 13 個 GitHub REST API tools → Rich Markdown 輸出。
+
+---
+
+## Take-Home Assessment 入口
+
+| 項目 | 位置 |
+|---|---|
+| Part 1 — 執行 CLI 工具 | [使用方式](#使用方式)（`uv run ghibli`） |
+| Part 1 — Break / Harden 說明 | [Eval 框架](#eval-框架) |
+| Part 1 — 無法根解的案例 | [已知限制](#已知限制) |
+| Part 2 — 執行 Eval Pipeline | `uv run python evals/run_evals.py --model <name>` |
+| Part 2 — 多模型評測結果 | [多模型評測結果](#多模型評測結果) |
 
 ---
 
@@ -26,66 +34,152 @@ Ionic Framework 最新版本是 v8.4.0，發布於 2025-03-12。
 git clone https://github.com/yourname/ghibli
 cd ghibli
 uv sync
+cp .env.example .env
+# 填入想用的模型 API key（見下一節）
 ```
 
-複製並填寫環境變數：
+---
+
+## 支援的模型與快速配置
+
+CLI（`agent.chat`）和 Eval pipeline（`evals/models.py`）共用同一組 13 個 tool schema，任何有 function calling 能力的模型都能接上。`.env` 只填你要用的那組即可。
+
+### CLI 使用（`uv run ghibli`）
+
+用 `--model` 切換，或設 `GHIBLI_MODEL` env var（`--model` 優先）：
+
+| 模型 | `--model` 值 / `GHIBLI_MODEL` | 必填環境變數 |
+|---|---|---|
+| **Gemini 2.5 Flash**（預設） | 省略 或 `gemini-2.5-flash` | `GEMINI_API_KEY` |
+| **Vertex AI**（Gemini 走 Google Cloud） | 省略 或 `gemini-2.5-flash` | `GOOGLE_CLOUD_PROJECT` + `gcloud auth application-default login` |
+| **OpenAI**（GPT-4o-mini / GPT-4o / …） | `openai:<model>`，如 `openai:gpt-4o-mini` | `OPENAI_API_KEY` |
+| **Ollama Cloud**（開源模型） | `ollama:<slug>`，如 `ollama:llama3.1:8b` | `OLLAMA_API_KEY` |
 
 ```bash
-cp .env.example .env
-# 編輯 .env，填入 GEMINI_API_KEY
+uv run ghibli --model openai:gpt-4o-mini
+uv run ghibli --model ollama:llama3.1:8b
+GHIBLI_MODEL=openai:gpt-4o-mini uv run ghibli     # env var 版本
 ```
+
+路由規則：值以 `openai:` 或 `ollama:` 開頭時走 LiteLLM；其他值（含預設）走 Gemini 原生 SDK，此時再看 `GEMINI_API_KEY` > `GOOGLE_CLOUD_PROJECT`（Vertex）。
+
+### Eval 使用（`uv run python evals/run_evals.py --model <name>`）
+
+| `--model` | 後端 | 必填環境變數 |
+|---|---|---|
+| `gemini` | Gemini 2.5 Flash（閉源） | `GEMINI_API_KEY` |
+| `gemma4` | Gemma-4-26b（開源權重，透過 Gemini API 存取） | `GEMINI_API_KEY` |
+| `gpt4o-mini` | GPT-4o-mini（閉源） | `OPENAI_API_KEY` |
+| `ollama-cloud` | Ollama Cloud 上任一支援 function calling 的模型 | `OLLAMA_API_KEY`（`OLLAMA_CLOUD_MODEL` 選用） |
+
+### 只想跑 Demo？最省力組合
+
+```bash
+# 到 https://aistudio.google.com/app/apikey 申請 Gemini API Key（免費額度夠用）
+echo 'GEMINI_API_KEY=AI...your_key' >> .env
+uv run ghibli
+```
+
+設定 `GITHUB_TOKEN`（PAT，只需 `public_repo:read`）可將 GitHub rate limit 從 60 req/hr 提高至 5000 req/hr。
 
 ---
 
 ## 使用方式
 
 ```bash
-uv run ghibli                        # 開新 session，進入對話
+uv run ghibli                        # 開新 session
 uv run ghibli --session <id>         # 接續歷史 session
 uv run ghibli --list-sessions        # 列出所有 session
 uv run ghibli --json                 # 輸出原始 JSON 而非 Rich Markdown
-uv run ghibli --version              # 顯示版本
+uv run ghibli --version
 ```
 
 ### 範例查詢
 
 ```
-搜尋最多星星的 Python 機器學習 repo
-torvalds 這個人是誰
-列出 facebook/react 最近 10 個 open issue
-microsoft/vscode 最新的 release 是哪一版
-找一個用 Go 寫的高效能 HTTP server
+可以幫我看看 Spectra-app 這個 Repo 嗎，然後跟我說一下具體這個 Repo 是在做什麼的，最近有什麼樣的更新
 ```
 
 ---
 
-## 環境變數
+## 開發流程：以 Spec 驅動 Claude Code
 
-複製 `.env.example` 並填寫：
+整個專案用 [Spectra](https://github.com/kaochenlong/spectra-app)（Spec-Driven Development）切成 8 個 change，每個 change 先產出 `proposal.md` + `tasks.md` + `specs/*/spec.md`，再由 Claude Code 逐項實作。好處是：AI 不必猜整體系統設計，每次只負責一個有清楚邊界的 change；commit 粒度天然乾淨，Spec 本身就是驗收清單。歷史 change 完整保留在 `openspec/changes/archive/`。
 
-| 變數 | 必要 | 說明 |
+開發順序：
+
+| # | Change | 內容 |
 |---|---|---|
-| `GEMINI_API_KEY` | 二擇一 | Gemini API Key（[取得](https://aistudio.google.com/app/apikey)） |
-| `GOOGLE_CLOUD_PROJECT` | 二擇一 | Vertex AI 專案 ID（搭配 Google ADC） |
-| `GOOGLE_CLOUD_LOCATION` | 選用 | Vertex AI 區域，預設 `us-central1` |
-| `GITHUB_TOKEN` | 選用 | GitHub PAT，未設定時每小時限 60 次請求 |
+| 1 | `project-scaffold` | pyproject.toml、src layout、`GhibliError` 階層、pytest 80% 覆蓋率門檻 |
+| 2 | `session-manager` | SQLite `~/.ghibli/sessions.db`，兩張表 `sessions` / `turns`、CRUD API |
+| 3 | `github-api-client` | `github_api.execute(tool_name, args)` 單一進入點 + `_TOOL_MAP` + `follow_redirects=True` |
+| 4 | `cli-entry-point` | Typer 對話 loop、`--session` / `--list-sessions` / `--json` / `--version` |
+| 5 | `github-tools` | 6 個 Python callable + Gemini Function Calling loop + 雙認證（API Key / Vertex） |
+| 6 | `output-formatter` | Rich Markdown 渲染、session 歷史載回 `contents`、cli 串接 agent |
+| 7 | `eval-framework` | 30 條 `queries.yaml` + `run_evals.py`，跑出第一輪 failure 集 |
+| 8 | `multi-model-eval` | Tools 6 → 13、LiteLLM 接 3 個模型、加 `judge.py` / `ground_truth` / `compare_models.py`、system prompt 迭代到 100% |
+
+每個 change 典型生命週期：
+
+```
+/spectra-discuss    討論需求、澄清邊界
+  ↓
+/spectra-propose    產出 proposal + tasks + spec.md（Plan Mode）
+  ↓
+/spectra-apply      Claude 照 tasks.md 逐項實作（TDD）
+  ↓
+/spectra-archive    提交 diff、把 change 搬到 archive/
+```
 
 ---
 
-## 開發
+## GitHub API → Tools 包裝設計
 
-```bash
-# 執行測試（含覆蓋率報告）
-uv run pytest
+### 為什麼需要包裝成 tools
 
-# Lint
-uv run ruff check src/
+LLM 不會自己打 `GET https://api.github.com/search/repositories?q=...`，只會輸出「想呼叫哪個函數、帶什麼參數」。所以我先請 Claude 通讀 GitHub REST API 文件，挑出回答一般 GitHub 問題最常用的端點，為每個端點寫一支 Python function：
 
-# 格式化
-uv run black src/ tests/
-```
+- Function 的 **signature + docstring** 就是 LLM 看到的 schema（`google-genai` 和 `litellm` 都會自動 introspect）
+- Function 的 **實作** 把參數轉 HTTP 請求，統一走 `github_api.execute()`
+- Function Calling loop 看到模型想呼叫哪個就 dispatch，把 JSON 回傳塞回 `contents` 再叫一次模型直到出純文字
 
-測試覆蓋率門檻：80%（由 `pyproject.toml` 強制執行）。
+等於在 API 文件與 LLM 之間架了一層「只暴露我想給的能力」的介面——也能避免 LLM 亂填 header 或 URL。
+
+### 13 個 Tools（依類別）
+
+**跨 repo 搜尋（`q` 必填，支援 GitHub Search qualifier）**
+
+| Tool | REST 端點 | 說明 |
+|---|---|---|
+| `search_repositories` | `GET /search/repositories` | 主力工具；支援 `language:` / `stars:>N` / `license:` / `pushed:` / `created:` / `archived:` / `good-first-issues:` / `in:readme` 等 qualifier |
+| `search_code` | `GET /search/code` | 找「哪些 repo 的哪個檔案用到某段程式碼」，支援 `repo:`/`language:`/`path:`/`filename:`/`extension:` |
+| `search_users` | `GET /search/users` | 找人或組織，支援 `followers:>N` / `location:` / `type:org` |
+| `search_issues` | `GET /search/issues` | 跨 repo 搜 issue / PR，支援 `is:pr` / `is:open` / `label:good-first-issue` / `author:` |
+
+**單一 repo 查詢（`owner` + `repo` 必填）**
+
+| Tool | REST 端點 | 說明 |
+|---|---|---|
+| `get_repository` | `GET /repos/{o}/{r}` | 只回 metadata（star / fork / primary language 字串等） |
+| `get_readme` | `GET /repos/{o}/{r}/readme` | base64 decode 的 README 文字（超過 3000 字截斷） |
+| `get_languages` | `GET /repos/{o}/{r}/languages` | 完整語言 byte 分布（`get_repository` 只給主要語言字串） |
+| `list_issues` | `GET /repos/{o}/{r}/issues` | 列單一 repo 的 issue |
+| `list_pull_requests` | `GET /repos/{o}/{r}/pulls` | 列單一 repo 的 PR |
+| `list_releases` | `GET /repos/{o}/{r}/releases` | Release 清單與發布日期 |
+| `list_commits` | `GET /repos/{o}/{r}/commits` | Commit 歷史，可帶 `sha` / `author` 過濾 |
+| `list_contributors` | `GET /repos/{o}/{r}/contributors` | 貢獻者排行（依 commit 數） |
+
+**單一使用者查詢**
+
+| Tool | REST 端點 | 說明 |
+|---|---|---|
+| `get_user` | `GET /users/{username}` | 個人公開資訊、follower 數、公開 repo 數 |
+
+### 關鍵設計取捨
+
+- **`search_*` vs `list_*` 嚴格分工**：前者跨 repo、`q` 必填；後者只吃 `owner + repo`。名稱相近但語意差很遠，模型很容易搞混（實際 eval failure 2 就是這個），所以 system prompt 逐條明列使用與禁止場景。
+- **`get_repository` 不 inline README / 完整語言分布**：維持 REST API 原設計；要讀 README 用 `get_readme`，要完整語言 byte 分布用 `get_languages`，避免單一 tool 回傳結構暴漲而讓模型迷路。
+- **所有 tool 回傳 `dict | list`**：原樣丟 LLM 自己摘要，程式層不壓欄位——少一層人為耦合，不同查詢能自由 emphasize 不同欄位。
 
 ---
 
@@ -96,160 +190,150 @@ uv run black src/ tests/
      ↓
 cli.py（Typer 對話 loop）
      ↓
-agent.py（Gemini 2.5 Flash Function Calling）
-     ↓  ← 載入/儲存 session history
+agent.py（Function Calling loop；分兩條路：Gemini 原生 SDK 或 LiteLLM）
+     ↓  ← append_turn / get_turns
 sessions.py（SQLite ~/.ghibli/sessions.db）
      ↓
-tools.py（6 個 GitHub tool function）
+tools.py（13 個 GitHub tool function）
      ↓
-github_api.py（httpx → GitHub REST API）
+github_api.py（httpx → api.github.com，follow_redirects=True）
      ↓
 output.py（Rich Markdown / JSON 輸出）
 ```
 
+幾個選擇的理由：
+
+- **Function Calling（而非 prompt + JSON 解析）**：SDK 自動驗型別、支援多步 agent loop、eval 可以直接從 `response.function_calls` 讀出被呼叫的 tool 序列，不用再解析 LLM 文字輸出。
+- **手動停用 `automatic_function_calling`**：為了可觀測。eval 需要在自己 dispatch 的地方記錄 tool 序列，自動模式下整條 loop 在 SDK 內部，外面拿不到。
+- **SQLite 而非記憶體 / JSONL**：CLI 會被啟動多次，要能「接上一次對話」；檔案 DB 最簡單、零配置。表結構做成 `sessions + turns` 是為了之後 eval 能以 SQL 跨 session 查詢 tool call 記錄。
+
 ---
 
-## 架構決策與取捨
-
-### 為什麼用 Function Calling，而不是 prompt-based JSON 輸出？
-
-最直觀的做法是要求 LLM 輸出一段 JSON（`{"tool": "search_repositories", "args": {...}}`），再由程式解析執行。我選擇不這樣做，原因有三：
-
-1. **型別安全**：Function Calling 由 SDK 自動驗證參數型別與必填欄位，prompt-based 輸出需要自己寫 schema validation，且 LLM 容易偷偷漏欄位或型別錯誤。
-2. **多步驟推理**：面對「找 star 最多的 Go web framework，再看它最近的 issue」這類查詢，Function Calling 允許模型在同一次對話中連續呼叫多個 tool，prompt-based 要自己實作 agentic loop。
-3. **可觀測性**：`response.function_calls` 直接暴露模型呼叫了哪個 tool、帶了什麼參數，在 eval 框架中可以直接記錄 `tools_called`，不需要額外解析 LLM 輸出。
-
-取捨：Function Calling 把控制權交給模型，偶爾模型會選錯 tool 或跳過必要步驟，需要 system prompt 補強。
-
-### 為什麼用 SQLite 而不是 in-memory 儲存？
-
-CLI 工具的使用情境是多次短暫啟動，每次對話幾輪後關閉。in-memory 儲存代表每次啟動都是全新 session，無法做到「接續上次問到哪裡」。
-
-SQLite 選擇的理由：
-- **零配置**：不需要起 server，單一檔案存在 `~/.ghibli/sessions.db`
-- **足夠輕量**：對話歷史的資料量極小，SQLite 完全夠用
-- **持久化**：允許 `--session <id>` 接續歷史對話
-
-取捨：目前沒有 history truncation，長時間使用後 session 會無限增長。生產環境應加入 token 預算上限或滾動視窗機制。
-
-### 為什麼停用 automatic_function_calling？
-
-`google-genai` SDK 預設會自動執行 function call 並把結果回傳給模型，整個 agentic loop 在 SDK 內部完成，呼叫者看不到過程。
-
-我選擇手動控制（`disable=True`）的原因：
-- **可觀測**：eval 框架需要記錄哪些 tool 被呼叫；自動模式下無法 patch tool 函式並追蹤呼叫
-- **錯誤邊界清楚**：每次 tool 呼叫都在我的 try/except 裡，GitHub API 錯誤可以正確包裝成 `GitHubAPIError` 回傳給模型
-- **彈性**：未來可以在呼叫前後加入 rate limit、快取、日誌等邏輯
-
-### System Prompt 設計
-
-`_SYSTEM_PROMPT` 是這個專案中唯一的「prompt engineering」層，每個規則都對應一類 eval 失敗：
+## Eval 框架
 
 ```
-## Typo correction
-在呼叫任何 tool 前，先靜默修正 repo name、org name、
-程式語言名稱的明顯錯別字。
-（修復依據：typo 類 eval 初始全部 fail，模型直接用錯誤拼字呼叫 API）
-
-## search_repositories — q is always required
-q 參數必填，永遠不能空呼叫。
-模糊查詢時的 fallback 策略：
-- 「最受歡迎」→ q="stars:>10000"
-- 「有趣的開源專案」→ q="stars:>1000 pushed:>2024-01-01"
-- 「最近很紅」→ q="created:>2024-01-01 stars:>1000"
-（修復依據：fuzzy 類 eval 出現 tool call missing required argument 錯誤）
-
-## Contradictory or impossible conditions
-邏輯上不可能的條件，解釋原因而非嘗試搜尋。
-（修復依據：模型面對矛盾條件會回傳空結果但不解釋，eval 視為 pass
- 但品質不足）
-
-## Language
-永遠用使用者輸入的語言回覆。
-（修復依據：multilingual eval 偶爾用英文回覆日文輸入）
+evals/
+├── queries.yaml        # 30 條測試案例（6 category × 5）
+├── run_evals.py        # 逐題跑，寫入 results.json
+├── models.py           # LiteLLM 包裝，切 4 個 eval 後端
+├── judge.py            # 比對 tools_called vs ground_truth
+├── compare_models.py   # 跨模型 accuracy Markdown 表
+└── results.json        # 歷次 run 結果（含 response 全文）
 ```
 
----
-
-## 現況與計畫
-
-| Phase | 狀態 | 說明 |
-|---|---|---|
-| Phase 1 — 核心 CLI | ✅ 完成 | 互動對話、Function Calling、session 持久化 |
-| Phase 2 — 強化層 | ✅ 完成 | Eval 框架、typo 容錯、模糊查詢 fallback、system prompt 強化 |
-| Phase 3 — 多模型評測 | ✅ 完成 | LiteLLM 跨模型評測、工具擴充至 13 個、hardening 至 100% |
-
-詳見 [`specs/roadmap.md`](specs/roadmap.md)。
-
----
-
-## Eval 框架（Part 2 入口）
-
-`evals/` 目錄包含系統性測試工具，支援多模型評測與邊緣案例驗證：
+### 執行
 
 ```bash
-# 單模型跑完整 30 條（需對應 API key）
 uv run python evals/run_evals.py --model gemini
 uv run python evals/run_evals.py --model gpt4o-mini
 uv run python evals/run_evals.py --model gemma4
-uv run python evals/run_evals.py --model ollama-cloud   # 需設定 OLLAMA_API_KEY
-
-# 只跑特定類別
-uv run python evals/run_evals.py --model gemini --category typo
-
-# 跨模型比較表（輸出 Markdown table）
-uv run python evals/compare_models.py
+uv run python evals/run_evals.py --model gemini --category typo   # 只跑某類
+uv run python evals/compare_models.py                              # 跨模型比較表
 ```
 
-`evals/queries.yaml` 包含 30 條測試案例，分為六類：
+### 30 條 Query 分類
 
-| 類別 | 數量 | 說明 |
+| 類別 | 數量 | 測什麼 |
 |---|---|---|
-| `qualifier` | 5 | 複合過濾條件（license、language、stars 組合） |
-| `temporal` | 5 | 時間範圍查詢，包含未來年份矛盾 |
-| `typo` | 5 | 常見拼字錯誤（語言名稱、org/repo 名稱） |
-| `contradiction` | 5 | 邏輯上不可能的條件，含 TRAP query（正常的 star >> fork 不應拒絕） |
-| `multi_step` | 5 | 需要兩次以上 tool call 的序列查詢 |
-| `tool_selection` | 5 | 每條都有誘人的錯誤工具設計，測試模型是否選對工具 |
+| `qualifier` | 5 | 自然語意 → GitHub Search qualifier（`license:mit`、`archived:false`、`good-first-issues:>10`、`in:readme` …） |
+| `temporal` | 5 | 時間推理（`pushed:` vs `created:`、`..` 範圍語法、相對日期換算） |
+| `typo` | 5 | org / repo / language 拼字錯誤自動修正（含 `flaskk` → pallets/flask 的 org 推斷） |
+| `contradiction` | 5 | 邏輯不可能條件（含一條 TRAP：`star >> fork` 其實正常，模型不該拒絕） |
+| `multi_step` | 5 | 需要 2–3 個 tool 串接 |
+| `tool_selection` | 5 | 每條都有誘人的錯誤工具（核心 hardening） |
 
-每條 query 附有 `ground_truth`（期望呼叫的工具序列），judge 使用 subsequence matching 判斷 pass/fail。結果存入 `evals/results.json`。
+### Ground Truth 與判斷標準
+
+每條 query 有一組 `ground_truth`，`evals/judge.py` 只檢查 tool 名稱與順序：
+
+```yaml
+# 單一工具
+ground_truth:
+  tool: search_repositories     # expected_tool 必須出現在 tools_called
+
+# 多步驟（允許中間插入其他呼叫，但順序正確）
+ground_truth:
+  tool: list_commits
+  tool_sequence:                # 對 tools_called 做 subsequence match
+    - get_repository
+    - list_commits
+
+# 不該呼叫任何工具
+ground_truth:
+  tool: none                    # tools_called 必須為空
+```
+
+刻意不檢查 `q` 字串內容：`q="stars:>5000 language:rust"` 和 `q="language:rust stars:>5000"` 等價；GitHub Search 也允許多種等價表達。過嚴的檢查會把對的答案誤判成錯，反而測不到「模型懂不懂得選工具」這件事。
+
+### Eval 設計演進
+
+- **v1**：30 條、5 categories × 6，問題太簡單，三個模型大多一輪就達 96.7%+，拉不出差異。
+- **v2**：擴到 37 條加測新工具，但新增的 `extended` query 缺乏誘人錯誤選項，還是太好過。
+- **v3（現行）**：30 條、6 categories × 5，用 `tool_selection` 取代 `extended`。每條刻意放一個「看起來對但其實錯」的工具，並加入 TRAP contradiction（star >> fork 是正常）避免過度保守。
+
+> **仍可補的缺口**：`list_contributors` 是 13 個 tool 裡唯一沒被任何 query 觸發到的；多語言也只保留繁中 + English 混用，v2 原有的日/韓文在取捨時被換掉了。目前 100% 通過率下不是 blocker，未來擴充 eval 時可以補。
+
+### 失敗案例與 System Prompt 設計
+
+System prompt 集中在 `src/ghibli/prompt.py` 的 `get_system_prompt()`，CLI（`agent.py`）和 eval（`evals/models.py`）共用同一份，eval 固定日期 `2026-04-22` 以保可重現、CLI 用今天日期。初版只有兩三行，下面每個區塊都是被一個實際 failure 逼出來的。
+
+#### Failure 1 — Gemini 直接從訓練資料回答（qualifier-003）
+
+**Query**：「找 README 裡有提到 `zero dependencies` 的輕量 JavaScript 工具」
+
+Gemini 沒呼叫工具，直接背出一串 repo 名。Ground truth 要求必須呼叫 `search_repositories`，判為 fail。
+
+**修復**：加 `## Always use tools — never answer from training data`，強制任何 GitHub 相關問題都必須查實際資料。
+
+#### Failure 2 — GPT-4o-mini 工具邊界混淆（tool_selection-002）
+
+**Query**：「找所有 Python repo 裡開放中、標記 good-first-issue 的 issue」
+
+模型選了 `list_issues`，但它只能查單一 repo；跨 repo 要用 `search_issues`。
+
+**修復**：加 `## Tool selection — critical rules`，逐條列每個 tool 的使用場景與禁止場景（例：`list_issues` 禁止用於跨 repo 搜尋）。
+
+#### Failure 3 — 矛盾條件仍先呼叫工具驗證（contradiction-004）
+
+**Query**：「找 fork 數是 star 數 1000 倍的熱門 JavaScript 框架」
+
+GPT-4o-mini 明知不可能，還是先呼叫 `search_repositories` 證明結果為空才解釋。Ground truth 是 `tool: none`，所以 fail。
+
+**修復**：用強制語氣「**MUST** respond with explanation only — never call any tool, not even to verify」，並列出具體不可能條件（star > 500k、fork > 10× star、未來年份、PR 同時 open 又 closed …）。同步加入 TRAP query 區分「fork >> star 不可能」 vs 「star >> fork 正常」，防止加規則後變得過度保守。
+
+#### Failure 4 — multi-step 跳過明確要求的 step（multi_step-003）
+
+**Query**：「找 star 最多的 Go web framework，先取得它的 repo 資訊，再看最近有哪些 release」
+
+`search_repositories` 結果本來就含 owner/repo，模型覺得 `get_repository` 冗餘就跳過。但 ground truth sequence 要求三步都在。
+
+**修復**：列出具體中文觸發短語（`取得 repo 資訊`、`先取得它的資訊`、`repo details`），規定即使已知 owner/repo 也必須呼叫。
+
+#### 每條 prompt 規則都對應一個 failure
+
+| System prompt 區塊 | 對應 failure |
+|---|---|
+| `Always use tools` | qualifier-003（從訓練資料回答） |
+| `Typo correction and unknown owners` | typo-001~005（用錯拼字打 API）+ 使用者只給 repo 名未給 owner（`spectra-app`）→ 先 search 再 call |
+| `search_repositories q is always required` | fuzzy query 不帶 `q` → SDK validation error |
+| `Tool selection — critical rules` | tool_selection-002（`list_issues` 跨 repo 誤用） |
+| `Multi-step queries` | multi_step-003（跳過要求的 `get_repository`） |
+| `Contradictory or impossible conditions` | contradiction-001~004（仍去 verify） |
+| `stars >> forks is normal` | contradiction-005 TRAP（過度保守會 fail） |
+| `Language — reply in user's language` | 早期 multilingual eval 偶爾用英文回日文 |
+
+完整 hardening log 見 [`specs/eval-hardening-log.md`](specs/eval-hardening-log.md)。
+
+### Eval 設計心得
+
+- **Ground truth 只標 tool 名與順序，不標 `q` 字串細節**：等價參數多種寫法都對，過嚴的判斷會誤判對的答案。
+- **TRAP query 很重要**：加「MUST not call tool」規則後，模型會變得過度保守把正常查詢也拒絕；需要「看似矛盾但其實正常」的 query 作反向保險。
+- **每條 prompt 規則都該對應一個實際 failure**：憑空想像的規則容易 overfit 不存在的問題；「看到 failure 才加規則」讓每條都有驗收條件，可以逐條回歸。
+- **System prompt 不宜無限擴張**：越加規則越容易誤觸相鄰規則。所以遇到新失敗偏好加 TRAP / 例子，而非再疊新的 "MUST"。
 
 ---
 
-## Phase 2 強化內容
-
-### 問題發現流程
-
-Phase 1 完成後，我設計了 30 條邊緣案例（`evals/queries.yaml`）並跑第一輪 eval，初始結果 23/30 pass，失敗集中在三類：
-
-1. **工具呼叫錯誤（error）**：Gemini 嘗試呼叫 `search_repositories` 但沒有帶 `q` 參數 → SDK 拋出 validation error → 整筆 eval 記錄為 error
-2. **404 / 301 錯誤**：`microsfot/vscode` 拼錯導致 404；`tiangolo/fastapi` 已遷移到 `fastapi/fastapi` 但 httpx 預設不追蹤 301
-3. **回應語言錯誤**：日文輸入收到英文回覆
-
-以下說明各問題的根因分析與修復決策：
-
-### 已修復
-
-**錯別字容錯（Typo Tolerance）**
-
-在 system prompt 加入 typo correction 指引，要求 Gemini 在呼叫任何 API 前先修正明顯拼字錯誤（如 `pytohn→python`、`microsfot→microsoft`、`javascrpit→javascript`）。修復後 typo 類 6 條全部 pass。
-
-**模糊查詢的 `q` 參數策略**
-
-`search_repositories` 的 `q` 參數為必填，但面對「找個有趣的開源專案」這類完全模糊的查詢，Gemini 原先會嘗試不帶參數呼叫而導致 error。system prompt 現在明確規定：
-- 「最受歡迎」類 → `q="stars:>10000"`
-- 「有趣的開源專案」類 → `q="stars:>1000 pushed:>2025-01-01"`
-- 「最近很紅」類 → `q="created:>2025-01-01 stars:>1000"`
-
-**GitHub repo 重新導向（301 Redirect）**
-
-GitHub 在 repo 遷移或重命名後會回傳 301。`github_api.py` 加入 `follow_redirects=True`，httpx 現在自動追蹤重新導向。
-
----
-
-## Part 2 — 多模型評測結果
-
-### 評測結果
+## 多模型評測結果
 
 | Model | Overall | Qualifier | Temporal | Typo | Contradiction | Multi-Step | Tool Selection |
 |-------|---------|-----------|----------|------|---------------|------------|----------------|
@@ -257,105 +341,44 @@ GitHub 在 repo 遷移或重命名後會回傳 301。`github_api.py` 加入 `fol
 | gpt-4o-mini | **100%** | 100% | 100% | 100% | 100% | 100% | 100% |
 | gemma-4-26b | **100%** | 100% | 100% | 100% | 100% | 100% | 100% |
 
-三個模型在 30 條 query 上全部達到 100%，但這是經過多輪 prompt hardening 後的結果——**初始版本並非如此**。
-
----
+達成 PDF 要求的「至少 3 個模型、開源 + 閉源 mix、>85% threshold」。
 
 ### 模型選型理由
 
-| Model | 選用理由 |
-|-------|---------|
-| **gemini-2.5-flash** | 本專案主模型（agent.py），eval 以此為 baseline |
-| **gpt-4o-mini** | 成本最低的 OpenAI 模型，代表「便宜但夠用」的方案，function calling 穩定 |
-| **gemma-4-26b** | Google 開源模型，透過 Gemini API 存取，測試開源模型的工具使用能力 |
-| **ollama-cloud** | 接口已實作並保留（`evals/models.py` + `src/ghibli/agent.py`），但 Ollama Cloud 模型（minimax-m2.7:cloud）推理速度過慢（單條 query 超過 30 分鐘），未完成完整評測 |
+| Model | 類型 | 為什麼選 |
+|---|---|---|
+| **gemini-2.5-flash** | 閉源 | CLI 主模型、eval baseline；Function Calling 最穩 |
+| **gpt-4o-mini** | 閉源 | OpenAI 最便宜仍支援 function calling 的模型，代表「便宜夠用」選項 |
+| **gemma-4-26b** | **開源權重** | Google 開放的 open-weight 模型，透過 Gemini API 存取避開本機資源限制 |
 
----
-
-### Eval 設計演進
-
-**v1（Phase 1）**：30 條、5 categories × 6，問題太容易，模型普遍達到 96.7%。
-
-**v2（Phase 2 初版）**：37 條，追加 7 條測試新工具，但新增的 `extended` 查詢缺乏「誘人的錯誤工具」設計，仍然太容易。
-
-**v3（最終版）**：30 條、6 categories × 5，以 `tool_selection` 取代 `extended`：
-- 每條 `tool_selection` query 都刻意包含一個誘人的錯誤工具（例如：問 issue 跨 repo 搜尋，誘導模型用 `list_issues` 而非 `search_issues`）
-- 新增 TRAP contradiction query：`stars >> forks` 是正常現象，模型不應拒絕呼叫工具
-- 複合 qualifier（license + language + pushed 同時組合）
-- 複合 temporal（created range + stars 閾值）
-
----
-
-### Prompt Hardening 過程
-
-初始版本各模型失敗案例與修復：
-
-#### Failure 1：Gemini — qualifier-003 不呼叫工具
-
-模型從訓練資料直接回答「zero dependency JavaScript 工具」，沒有呼叫 GitHub API。
-
-**修復**：system prompt 加入 `## Always use tools — never answer from training data`，明確要求任何 GitHub 相關問題都必須呼叫工具。
-
-#### Failure 2：GPT-4o-mini — 工具邊界混淆（list_issues vs search_issues）
-
-「找所有 Python repo 裡的 good-first-issue」應使用 `search_issues`（跨 repo），但模型選了 `list_issues`（只能查單一 repo）。
-
-**修復**：system prompt 新增 `## Tool selection — critical rules`，逐條說明每個工具的使用場景與禁止場景。
-
-#### Failure 3：GPT-4o-mini — 矛盾條件仍呼叫工具
-
-「fork 數是 star 數 1000 倍」應判斷為不可能並直接解釋，但模型選擇先搜尋再驗證。
-
-**修復**：改為強制語氣「MUST respond with explanation only — never call any tool, not even to verify」，同時加入 TRAP query 區分「fork >> star 不可能」與「star >> fork 正常」兩種情況，防止過度保守。
-
-#### Failure 4：GPT-4o-mini — multi-step 跳過 get_repository
-
-search_repositories 後已知 owner/repo，模型判斷 get_repository 多餘而跳過，儘管 query 明確說「先取得 repo 資訊」。
-
-**修復**：列出中文觸發短語（「取得 repo 資訊」、「先取得它的資訊」），明確要求即使已知 owner/repo 也必須呼叫。
-
-完整記錄見 [`specs/eval-hardening-log.md`](specs/eval-hardening-log.md)。
-
----
-
-### 工具清單（13 個）
-
-Phase 2 從 Phase 1 的 6 個工具擴充至 13 個：
-
-| 工具 | GitHub API | 說明 |
-|------|-----------|------|
-| `search_repositories` | `GET /search/repositories` | 依條件搜尋 repo |
-| `get_repository` | `GET /repos/{owner}/{repo}` | 取得單一 repo metadata |
-| `list_issues` | `GET /repos/{owner}/{repo}/issues` | 列出特定 repo 的 issues |
-| `list_pull_requests` | `GET /repos/{owner}/{repo}/pulls` | 列出特定 repo 的 PRs |
-| `get_user` | `GET /users/{username}` | 取得使用者資訊 |
-| `list_releases` | `GET /repos/{owner}/{repo}/releases` | 列出 repo 的 releases |
-| `get_languages` | `GET /repos/{owner}/{repo}/languages` | 完整語言分布（bytes） |
-| `list_contributors` | `GET /repos/{owner}/{repo}/contributors` | 貢獻者清單 |
-| `list_commits` | `GET /repos/{owner}/{repo}/commits` | commit 歷史 |
-| `search_code` | `GET /search/code` | 跨 repo 原始碼搜尋 |
-| `search_users` | `GET /search/users` | 搜尋開發者/組織 |
-| `search_issues` | `GET /search/issues` | 跨 repo issue/PR 搜尋 |
-| `get_readme` | `GET /repos/{owner}/{repo}/readme` | 取得並解碼 README 內容 |
+`ollama-cloud` 接口在 CLI 與 eval 兩邊都可用。`qwen3.5:cloud` 實測能穩定做 function calling（單條 query 推理 60–90 秒），早期試過的 `minimax-m2.7:cloud` 會回空回應、`llama3.1:8b` 單條超過數分鐘。CLI 使用：`--model ollama:qwen3.5:cloud`；Eval：`OLLAMA_CLOUD_MODEL=qwen3.5:cloud uv run python evals/run_evals.py --model ollama-cloud`。
 
 ---
 
 ## 已知限制
 
-以下為根本上難以完整解決的問題：
+### 1. 模糊輸入只能近似
 
-### 1. 模糊輸入的近似解
+GitHub REST API 沒有官方 trending endpoint。ghibli 用 `created:>{近期} sort:stars` 近似「最近很紅」，能找到 OpenClaw、Hermes Agent 等合理結果，但 star 增速快而 created 時間較早的 repo 會被漏掉。這是 API 本身的限制，prompt 無解。
 
-GitHub REST API 沒有官方 trending endpoint。ghibli 以 `created:>2025-01-01 sort:stars` 來近似「近期熱門」，eval 顯示能找出 OpenClaw、Hermes Agent 等 AI Agent repo，但這只是近似法——star 增長快速但創建時間較早的 repo 可能被遺漏。
+### 2. 矛盾條件判斷依賴 LLM 推理
 
-### 2. 矛盾條件依賴 Gemini 推理
+GitHub API 對「fork > star × 1000」這種不可能條件會照單全收回空結果。ghibli 靠 prompt 和模型推理識別，eval 中 5 條 contradiction 都能正確拒絕，但這是統計性而非程式保證——引入推理較弱的模型時此保證會鬆動。
 
-「找 star 超過 100 萬的 repo」、「列出同時 open 又 closed 的 PR」等邏輯矛盾查詢，GitHub API 本身不驗證可能性，只回傳空結果。Gemini 在 eval 中能正確識別 6 條矛盾條件並給出解釋，但這依賴模型推理，非程式層保證。
+### 3. Typo 修正有邊界
 
-### 3. 錯別字修正的邊界
+Typo correction 同樣依賴 LLM，沒有規則式字典。語意歧義時（`linus` 可能是人名也可能是 `linux` 的縮寫）仍可能往錯方向修正。
 
-typo correction 依賴 Gemini 推理，沒有規則式驗證。語意歧義的情況（如「linus」可能是人名也可能是 repo 名 `linux`）仍可能修正錯誤方向。
+### 4. 非繁中多語言未正式驗證
 
-### 4. 非繁中多語言
+現行 30 條全是繁中 + English 混用；日文、韓文在 v2 做過但 v3 沒納入正式 ground truth。複雜多步驟的日韓查詢準確性不保證。
 
-日文、韓文在 eval 6 條查詢均 pass，但屬未正式驗證的行為。複雜多步驟的日韓文查詢準確性不保證。
+---
+
+## 開發指令
+
+```bash
+uv run pytest                      # 執行測試（含 80% 覆蓋率門檻）
+uv run ruff check src/
+uv run black src/ tests/
+```
