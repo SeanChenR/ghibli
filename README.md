@@ -86,7 +86,7 @@ ghibli --model-picker
 | 2 | Gemini 2.5 Flash (Vertex AI) | `GOOGLE_CLOUD_PROJECT` + `gcloud auth application-default login` | `gemini-2.5-flash`（native SDK，自動走 Vertex） |
 | 3 | Gemma-4-26b（開源權重） | `GEMINI_API_KEY` | `gemini:gemma-4-26b-a4b-it`（LiteLLM） |
 | 4 | OpenAI | `OPENAI_API_KEY`（`OPENAI_MODEL` 選用，預設 `gpt-4o-mini`，[完整清單](https://developers.openai.com/api/docs/models/all)） | `openai:<slug>`（LiteLLM） |
-| 5 | Ollama Cloud | `OLLAMA_API_KEY`（`OLLAMA_CLOUD_MODEL` 選用，預設 `qwen3.5:cloud`） | `ollama:<slug>`（LiteLLM） |
+| 5 | Ollama Cloud | `OLLAMA_API_KEY`（`OLLAMA_CLOUD_MODEL` 選用，預設 `qwen3.5:cloud`，[完整清單](https://ollama.com/search?c=cloud)） | `ollama:<slug>`（LiteLLM） |
 
 選了缺 credential 的 provider → picker 自動跑 onboarding：API Key 類 prompt 隱藏輸入、Vertex 類指引跑 `gcloud auth application-default login`。所有 credential 寫進 **專案本地** 的 `.env`（**不動** `~/.env`）。
 

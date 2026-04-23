@@ -200,7 +200,7 @@ def choose_model() -> str | None:
     elif provider.display == "Ollama Cloud":
         default_slug = os.environ.get("OLLAMA_CLOUD_MODEL", "qwen3.5:cloud")
         slug = typer.prompt(
-            "Which Ollama Cloud model slug?",
+            "Which Ollama Cloud model slug? (see https://ollama.com/search?c=cloud)",
             default=default_slug,
         )
         identifier = f"ollama:{slug}"
