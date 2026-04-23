@@ -1,7 +1,9 @@
 import json
 import os
 import re
+import sys
 import time
+from typing import Callable
 
 import litellm
 from google import genai
@@ -49,6 +51,20 @@ _TOOLS = [
 _OLLAMA_CLOUD_API_BASE = "https://ollama.com"
 
 
+def _safe_invoke_callback(
+    cb: Callable[[str, dict], None] | None,
+    name: str,
+    args: dict,
+) -> None:
+    """Invoke a tool-dispatch callback; swallow + log any exception so caller survives."""
+    if cb is None:
+        return
+    try:
+        cb(name, dict(args))
+    except Exception as e:
+        print(f"on_tool_call callback error: {e}", file=sys.stderr)
+
+
 def _chat_litellm(
     user_message: str,
     session_id: str,
@@ -56,6 +72,7 @@ def _chat_litellm(
     api_key: str,
     provider_label: str,
     api_base: str | None = None,
+    on_tool_call: Callable[[str, dict], None] | None = None,
 ) -> str:
     """Chat via LiteLLM (shared by Ollama Cloud and OpenAI paths)."""
     tool_schemas = get_openai_tool_schemas()
@@ -103,6 +120,7 @@ def _chat_litellm(
         for tc in msg.tool_calls:
             fn_name = tc.function.name
             fn_args = json.loads(tc.function.arguments)
+            _safe_invoke_callback(on_tool_call, fn_name, fn_args)
             try:
                 result = getattr(tools, fn_name)(**fn_args)
             except Exception as e:
@@ -124,8 +142,15 @@ def chat(
     session_id: str,
     json_output: bool,
     model: str | None = None,
+    *,
+    on_tool_call: Callable[[str, dict], None] | None = None,
 ) -> str:
-    ghibli_model = model or os.environ.get("GHIBLI_MODEL", "gemini-2.5-flash")
+    ghibli_model = model or os.environ.get("GHIBLI_MODEL")
+    if ghibli_model is None:
+        raise ToolCallError(
+            "No model specified. Pass `model=<id>` to chat(), set GHIBLI_MODEL, "
+            "or use the CLI's --model / picker to resolve one."
+        )
 
     # Route to Ollama Cloud when GHIBLI_MODEL=ollama:<model-slug>
     if ghibli_model.startswith("ollama:"):
@@ -143,6 +168,7 @@ def chat(
             api_key=api_key,
             provider_label="Ollama Cloud",
             api_base=_OLLAMA_CLOUD_API_BASE,
+            on_tool_call=on_tool_call,
         )
 
     # Route to OpenAI when GHIBLI_MODEL=openai:<model>
@@ -160,6 +186,25 @@ def chat(
             model_id=f"openai/{openai_model}",
             api_key=api_key,
             provider_label="OpenAI",
+            on_tool_call=on_tool_call,
+        )
+
+    # Route Gemma (and other Gemini-hosted variants) via LiteLLM with `gemini:` prefix
+    if ghibli_model.startswith("gemini:"):
+        gemini_slug = ghibli_model[len("gemini:") :]
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            raise ToolCallError(
+                "GEMINI_API_KEY is required for `gemini:` LiteLLM mode. "
+                "Get yours at https://aistudio.google.com/app/apikey"
+            )
+        return _chat_litellm(
+            user_message,
+            session_id,
+            model_id=f"gemini/{gemini_slug}",
+            api_key=api_key,
+            provider_label="Gemini",
+            on_tool_call=on_tool_call,
         )
 
     # --- Gemini native SDK path ---
@@ -217,6 +262,7 @@ def chat(
 
         tool_parts = []
         for fc in response.function_calls:
+            _safe_invoke_callback(on_tool_call, fc.name, dict(fc.args))
             try:
                 result = getattr(tools, fc.name)(**fc.args)
             except Exception as e:

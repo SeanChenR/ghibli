@@ -2,14 +2,6 @@
 
 用自然語言查詢 GitHub，不需要記住 API 格式。
 
-```
-You> 搜尋最多星星的 TypeScript 前端框架
-Ionic Framework 是最受歡迎的 TypeScript 前端框架，它有 52466 顆星。
-
-You> 可以告訴我它的最新 release 嗎
-Ionic Framework 最新版本是 v8.4.0，發布於 2025-03-12。
-```
-
 底層是 LLM Function Calling（Gemini / GPT-4o-mini / Gemma-4 / Ollama 可互換）→ 13 個 GitHub REST API tools → Rich Markdown 輸出。
 
 ---
@@ -42,26 +34,111 @@ cp .env.example .env
 
 ## 支援的模型與快速配置
 
-CLI（`agent.chat`）和 Eval pipeline（`evals/models.py`）共用同一組 13 個 tool schema，任何有 function calling 能力的模型都能接上。`.env` 只填你要用的那組即可。
+CLI（`agent.chat`）和 Eval pipeline（`evals/models.py`）共用同一組 13 個 tool schema，任何有 function calling 能力的模型都能接上。
 
-### CLI 使用（`uv run ghibli`）
+### 啟動流程：顯式選擇 + 記憶上次選擇
 
-用 `--model` 切換，或設 `GHIBLI_MODEL` env var（`--model` 優先）：
+Model 解析優先順序（**無 silent default**）：
 
-| 模型 | `--model` 值 / `GHIBLI_MODEL` | 必填環境變數 |
-|---|---|---|
-| **Gemini 2.5 Flash**（預設） | 省略 或 `gemini-2.5-flash` | `GEMINI_API_KEY` |
-| **Vertex AI**（Gemini 走 Google Cloud） | 省略 或 `gemini-2.5-flash` | `GOOGLE_CLOUD_PROJECT` + `gcloud auth application-default login` |
-| **OpenAI**（GPT-4o-mini / GPT-4o / …） | `openai:<model>`，如 `openai:gpt-4o-mini` | `OPENAI_API_KEY` |
-| **Ollama Cloud**（開源模型） | `ollama:<slug>`，如 `ollama:llama3.1:8b` | `OLLAMA_API_KEY` |
-
-```bash
-uv run ghibli --model openai:gpt-4o-mini
-uv run ghibli --model ollama:llama3.1:8b
-GHIBLI_MODEL=openai:gpt-4o-mini uv run ghibli     # env var 版本
+```
+--model <id>  →  GHIBLI_MODEL env  →  .ghibli/last_model  →  picker（選完寫回 last_model）
 ```
 
-路由規則：值以 `openai:` 或 `ollama:` 開頭時走 LiteLLM；其他值（含預設）走 Gemini 原生 SDK，此時再看 `GEMINI_API_KEY` > `GOOGLE_CLOUD_PROJECT`（Vertex）。
+第一次啟動（前 3 層都沒東西、stdin 是 TTY）→ picker 出現 5 個選項：
+
+```
+$ ghibli
+Select a model:
+  1) Gemini 2.5 Flash (API Key)
+  2) Gemini 2.5 Flash (Vertex AI)
+  3) Gemma-4-26b (open-weight, via Gemini API)
+  4) OpenAI gpt-4o-mini
+  5) Ollama Cloud
+Select [1]: 4
+Get your key at https://platform.openai.com/api-keys
+Paste your OPENAI_API_KEY: ******
+Saved to .env.
+────────────────────────────────────────────────────────────────
+  ghibli 0.1.0  ·  model: openai:gpt-4o-mini
+  session: 3f9c...-2a7b
+  Press Ctrl+D or enter a blank line to exit.
+────────────────────────────────────────────────────────────────
+You>
+```
+
+第二次以後跑 `ghibli` → 直接從 `.ghibli/last_model` 讀、不顯示 picker。
+
+### `--model-picker`：強制重選
+
+想換 model 時不必刪 `.ghibli/last_model`：
+
+```bash
+ghibli --model-picker
+```
+
+會忽略 `--model` / `GHIBLI_MODEL` / `.ghibli/last_model`，重顯 picker，選完覆寫 `last_model`。
+
+### 5 個支援的 provider
+
+| # | 選項 | 需要的 credential | Model identifier |
+|---|---|---|---|
+| 1 | Gemini 2.5 Flash (API Key) | `GEMINI_API_KEY` | `gemini-2.5-flash`（native SDK） |
+| 2 | Gemini 2.5 Flash (Vertex AI) | `GOOGLE_CLOUD_PROJECT` + `gcloud auth application-default login` | `gemini-2.5-flash`（native SDK，自動走 Vertex） |
+| 3 | Gemma-4-26b（開源權重） | `GEMINI_API_KEY` | `gemini:gemma-4-26b-a4b-it`（LiteLLM） |
+| 4 | OpenAI | `OPENAI_API_KEY`（`OPENAI_MODEL` 選用，預設 `gpt-4o-mini`，[完整清單](https://developers.openai.com/api/docs/models/all)） | `openai:<slug>`（LiteLLM） |
+| 5 | Ollama Cloud | `OLLAMA_API_KEY`（`OLLAMA_CLOUD_MODEL` 選用，預設 `qwen3.5:cloud`） | `ollama:<slug>`（LiteLLM） |
+
+選了缺 credential 的 provider → picker 自動跑 onboarding：API Key 類 prompt 隱藏輸入、Vertex 類指引跑 `gcloud auth application-default login`。所有 credential 寫進 **專案本地** 的 `.env`（**不動** `~/.env`）。
+
+### 挑 OpenAI / Ollama 的具體 model
+
+選項 4（OpenAI）和 5（Ollama Cloud）選完之後，picker 會**再 prompt 一次**問你要哪個 model slug，default 從環境變數取：
+
+```
+Select [1]: 4
+Which OpenAI model? (see https://developers.openai.com/api/docs/models/all) [gpt-4o-mini]: gpt-4o
+```
+
+- **直接 Enter** → 用 default（OpenAI 用 `OPENAI_MODEL` env 或 `gpt-4o-mini`；Ollama 用 `OLLAMA_CLOUD_MODEL` 或 `qwen3.5:cloud`）
+- **打新 slug**（如 `gpt-4o` / `gpt-5` / `llama3.1:70b-cloud`）→ 就用那個
+
+選完寫成 **具體 identifier**（如 `openai:gpt-4o`）到 `.ghibli/last_model`。**下次跑 `ghibli` 會直接讀 `last_model`，不再回看 `OPENAI_MODEL` env**。
+
+#### 之後想換 OpenAI / Ollama model 的 3 種方法
+
+| 方法 | 指令 | 適用情境 |
+|---|---|---|
+| 重新跑 picker | `ghibli --model-picker` | 想換 provider 也同時換 slug |
+| 單次覆寫 | `ghibli --model openai:gpt-5` | 臨時用一次、不動 `last_model` |
+| 編輯檔案 | `echo "openai:gpt-5" > .ghibli/last_model` | 批次腳本、純文字改 |
+
+**注意**：只改 `.env` 的 `OPENAI_MODEL` 是**無效的**——因為 `last_model` 會優先被讀。`OPENAI_MODEL` 只在 picker prompt 時被當成 default 值提示給使用者，不會覆蓋已經寫定的 `last_model`。
+
+### Bypass picker（script / CI / eval 用）
+
+```bash
+uv run ghibli --model openai:gpt-4o-mini           # 當次用，不動 last_model
+GHIBLI_MODEL=ollama:qwen3.5:cloud uv run ghibli     # env var 優先
+echo "query" | uv run ghibli --model openai:gpt-4o-mini  # 非 TTY 必須帶 --model
+```
+
+路由規則：值以 `openai:` / `ollama:` / `gemini:` 開頭走 LiteLLM；其他值（如 `gemini-2.5-flash`）走 Gemini 原生 SDK（此時 `GEMINI_API_KEY` > `GOOGLE_CLOUD_PROJECT` 決定 API Key / Vertex 路徑）。
+
+**credential 自動補洞**：即使是用 `--model` bypass picker，model 解析完成後仍會跑 `picker.ensure_credentials`——如果該 provider 的 env var 沒設，TTY 下會即時 prompt 輸入 key 寫到 `.env`；非 TTY 則直接 exit 1 並在 stderr 印出缺哪個 key。這樣 `ghibli --model openai:gpt-4o` 在沒 `OPENAI_API_KEY` 時不會拖到第一輪 chat 才炸，會在啟動時就問。
+
+### 專案本地狀態：`.ghibli/` 目錄
+
+session DB 和 `last_model` 都放在 **專案根目錄** 的 `.ghibli/`：
+
+```
+<repo>/
+├── .env                  # API keys（onboarding 會 append）
+├── .ghibli/              # 已加進 .gitignore
+│   ├── sessions.db       # SQLite session 歷史
+│   └── last_model        # 上次選的 model identifier（純文字一行）
+```
+
+一個 repo 一套獨立狀態，跨 repo 切換不會把設定混在一起。
 
 ### Eval 使用（`uv run python evals/run_evals.py --model <name>`）
 
@@ -74,11 +151,9 @@ GHIBLI_MODEL=openai:gpt-4o-mini uv run ghibli     # env var 版本
 
 ### 只想跑 Demo？最省力組合
 
-```bash
-# 到 https://aistudio.google.com/app/apikey 申請 Gemini API Key（免費額度夠用）
-echo 'GEMINI_API_KEY=AI...your_key' >> .env
-uv run ghibli
-```
+**完全沒 key**：直接跑 `uv run ghibli`——沒偵測到任何 provider 時會進 onboarding，引導你選 model、貼 key、自動寫到 `.env`，然後就能開始對話。
+
+**手動配置**：到 [Google AI Studio](https://aistudio.google.com/app/apikey) 申請免費 Gemini API key（一般 demo 額度夠用），`echo 'GEMINI_API_KEY=AI...your_key' >> .env` 後 `uv run ghibli` 即可。
 
 設定 `GITHUB_TOKEN`（PAT，只需 `public_repo:read`）可將 GitHub rate limit 從 60 req/hr 提高至 5000 req/hr。
 
@@ -104,20 +179,21 @@ uv run ghibli --version
 
 ## 開發流程：以 Spec 驅動 Claude Code
 
-整個專案用 [Spectra](https://github.com/kaochenlong/spectra-app)（Spec-Driven Development）切成 8 個 change，每個 change 先產出 `proposal.md` + `tasks.md` + `specs/*/spec.md`，再由 Claude Code 逐項實作。好處是：AI 不必猜整體系統設計，每次只負責一個有清楚邊界的 change；commit 粒度天然乾淨，Spec 本身就是驗收清單。歷史 change 完整保留在 `openspec/changes/archive/`。
+整個專案用 [Spectra](https://github.com/kaochenlong/spectra-app)（Spec-Driven Development）切成 9 個 change，每個 change 先產出 `proposal.md` + `tasks.md` + `specs/*/spec.md`，再由 Claude Code 逐項實作。好處是：AI 不必猜整體系統設計，每次只負責一個有清楚邊界的 change；commit 粒度天然乾淨，Spec 本身就是驗收清單。歷史 change 完整保留在 `openspec/changes/archive/`。
 
 開發順序：
 
 | # | Change | 內容 |
 |---|---|---|
 | 1 | `project-scaffold` | pyproject.toml、src layout、`GhibliError` 階層、pytest 80% 覆蓋率門檻 |
-| 2 | `session-manager` | SQLite `~/.ghibli/sessions.db`，兩張表 `sessions` / `turns`、CRUD API |
+| 2 | `session-manager` | SQLite session DB，兩張表 `sessions` / `turns`、CRUD API（v1 放 `~/.ghibli/`，後由 #9 搬到專案目錄） |
 | 3 | `github-api-client` | `github_api.execute(tool_name, args)` 單一進入點 + `_TOOL_MAP` + `follow_redirects=True` |
 | 4 | `cli-entry-point` | Typer 對話 loop、`--session` / `--list-sessions` / `--json` / `--version` |
 | 5 | `github-tools` | 6 個 Python callable + Gemini Function Calling loop + 雙認證（API Key / Vertex） |
 | 6 | `output-formatter` | Rich Markdown 渲染、session 歷史載回 `contents`、cli 串接 agent |
 | 7 | `eval-framework` | 30 條 `queries.yaml` + `run_evals.py`，跑出第一輪 failure 集 |
 | 8 | `multi-model-eval` | Tools 6 → 13、LiteLLM 接 3 個模型、加 `judge.py` / `ground_truth` / `compare_models.py`、system prompt 迭代到 100% |
+| 9 | `interactive-model-picker` | 新 `picker.py` 模組：5 選項 picker（含 Vertex AI）+ `ensure_credentials` 自動 onboard 缺 key 的 provider；`.ghibli/last_model` 記住上次選；SQLite 搬到 `<cwd>/.ghibli/sessions.db`；`--model-picker` flag；`.env` 只讀 cwd；CLI welcome banner + `Thinking...` spinner + tool 即時可視化；退出時空 session 自動刪 |
 
 每個 change 典型生命週期：
 
@@ -188,11 +264,13 @@ LLM 不會自己打 `GET https://api.github.com/search/repositories?q=...`，只
 ```
 自然語言輸入
      ↓
-cli.py（Typer 對話 loop）
+cli.py（Typer + Rich：model 解析 4 層 / welcome banner / spinner / tool viz / 退出提示）
+     ↓  ← choose_model / ensure_credentials / read_last_model / write_last_model
+picker.py（5 選項 picker + API Key / Vertex onboarding + .env writer）
      ↓
 agent.py（Function Calling loop；分兩條路：Gemini 原生 SDK 或 LiteLLM）
-     ↓  ← append_turn / get_turns
-sessions.py（SQLite ~/.ghibli/sessions.db）
+     ↓  ← append_turn / get_turns / count_turns / delete_session
+sessions.py（SQLite <cwd>/.ghibli/sessions.db）
      ↓
 tools.py（13 個 GitHub tool function）
      ↓
@@ -203,9 +281,11 @@ output.py（Rich Markdown / JSON 輸出）
 
 幾個選擇的理由：
 
-- **Function Calling（而非 prompt + JSON 解析）**：SDK 自動驗型別、支援多步 agent loop、eval 可以直接從 `response.function_calls` 讀出被呼叫的 tool 序列，不用再解析 LLM 文字輸出。
-- **手動停用 `automatic_function_calling`**：為了可觀測。eval 需要在自己 dispatch 的地方記錄 tool 序列，自動模式下整條 loop 在 SDK 內部，外面拿不到。
-- **SQLite 而非記憶體 / JSONL**：CLI 會被啟動多次，要能「接上一次對話」；檔案 DB 最簡單、零配置。表結構做成 `sessions + turns` 是為了之後 eval 能以 SQL 跨 session 查詢 tool call 記錄。
+- **Model 解析 4 層、無 silent default**：`--model > GHIBLI_MODEL > .ghibli/last_model > picker`；落空就 exit 1 而非 fallback 到 `gemini-2.5-flash`。使用者才會清楚知道當次跑哪個 model。
+- **Picker 獨立模組**：把「選哪個 model」「缺 key 怎麼補」抽離到 `picker.py`，`cli.py` 只負責 orchestration。`ensure_credentials` 在所有 model 來源之後跑（不只 picker），所以 `--model openai:gpt-4o` 少 key 時也會 prompt，而不是拖到第一輪 chat 才炸。
+- **Project-local `<cwd>/.ghibli/`**：`sessions.db` + `last_model` 都放專案目錄，一個 repo 一套狀態、跨 repo 不污染；`.gitignore` 加一行搞定，跨平台不依賴 home directory 結構。
+- **Function Calling（而非 prompt + JSON 解析）**：SDK 自動驗型別、支援多步 agent loop、eval 可以直接從 `response.function_calls` 讀出被呼叫的 tool 序列。
+- **手動停用 `automatic_function_calling`**：為了可觀測——eval 需要在自己 dispatch 的地方記錄 tool 序列、CLI 也靠這個實作 `on_tool_call` callback 來即時印 `→ tool(args)` 給使用者看。
 
 ---
 
@@ -357,7 +437,7 @@ GPT-4o-mini 明知不可能，還是先呼叫 `search_repositories` 證明結果
 
 ## 測試
 
-109 條測試、整體覆蓋率 88%，由 `pyproject.toml` 強制 `--cov-fail-under=80` 門檻。單元測試 mock 掉外部依賴（`litellm.completion`、`genai.Client`、`httpx`、SQLite）；整合測試用 `@pytest.mark.integration` 標記、真的打外部 API。
+165 條測試、整體覆蓋率 88%，由 `pyproject.toml` 強制 `--cov-fail-under=80` 門檻。單元測試 mock 掉外部依賴（`litellm.completion`、`genai.Client`、`httpx`、SQLite、`typer.prompt`）；整合測試用 `@pytest.mark.integration` 標記、真的打外部 API。
 
 ```bash
 uv run pytest                           # 預設全跑
@@ -367,12 +447,13 @@ uv run pytest tests/integration/        # 只跑整合測試
 
 | 檔案 | 類型 | 數量 | 測什麼 |
 |---|---|---|---|
-| `test_agent.py` | Unit | 16 | Gemini SDK + LiteLLM 雙路徑 routing；`--model` 覆寫 `GHIBLI_MODEL` env；`openai:` / `ollama:` prefix 解析；tool 失敗可恢復（error 塞回給 LLM 不 raise）；session turn 持久化 |
-| `test_cli.py` | Unit | 10 | Typer 對話 loop；`--version` / `--list-sessions` / `--json` / `--session` / `--model` flag；空行 / EOF 優雅退出；`GhibliError` 不中斷 session；未知 session id 拒絕 |
+| `test_agent.py` | Unit | 23 | Gemini SDK + LiteLLM 三條 prefix routing（`openai:` / `ollama:` / `gemini:`）；`--model` 覆寫 `GHIBLI_MODEL` env；`on_tool_call` callback（Gemini + LiteLLM 兩路徑，例外不中斷 loop）；tool 失敗可恢復（error 塞回給 LLM 不 raise）；session turn 持久化；missing credentials → `ToolCallError` |
+| `test_cli.py` | Unit | 27 | Typer 對話 loop + `--version` / `--list-sessions` / `--json` / `--session` / `--model` / `--model-picker` flag；model 解析 4 層優先順序 + 無 silent default；picker 接入 + `ensure_credentials`；welcome banner / spinner / tool viz；session save hint + 空 session 自動刪；`--help` 不顯示 Typer completion；`load_dotenv` 用明確 cwd 路徑；home `.env` 不污染 |
+| `test_picker.py` | Unit | 24 | `choose_model` 固定列 5 選項 + 選完 `write_last_model`；非 TTY 回 None；5 選項 → identifier 對應表；`run_onboarding` 寫 `.env` / 已有 key 時 `sys.exit(0)`；`append_env_var` 三分支（缺檔建立 / 已存 append / 有該 key 拒寫）；`read_last_model` / `write_last_model` round-trip；Vertex AI onboarding 印 `gcloud auth application-default login` + 寫 project id；`ensure_credentials` 對 4 種 prefix 的檢查與 raise |
 | `test_github_api.py` | Unit | 9 | `execute()` URL path 參數替換；`GITHUB_TOKEN` Authorization header；User-Agent；404 / 500 / timeout → `GitHubAPIError`；unknown tool → `ToolCallError` |
 | `test_tools.py` | Unit | 13 | 13 個 tool 函式 imports；參數轉發到 `github_api.execute()`；`list_commits` 略過 `None` optional；`get_readme` base64 解碼 + 3000 字截斷 + 非 base64 回原樣 |
 | `test_tool_schema.py` | Unit | 4 | Python docstring + type hint → OpenAI-compatible schema 轉換；13 tools 全列；schema 結構合法（type/properties/required） |
-| `test_sessions.py` | Unit | 11 | `~/.ghibli/sessions.db` 首次自動建立；UUID session id；CRUD（get / list / append）；turn 含 tool metadata；空 session 回空；插入順序保留 |
+| `test_sessions.py` | Unit | 19 | `<cwd>/.ghibli/sessions.db` 首次自動建立（舊 home 路徑不被觸及）；UUID session id；CRUD（get / list / append）；turn 含 tool metadata；`count_turns` 含 unknown id 回 0；`delete_session` 同時刪 turns + session；插入順序保留 |
 | `test_exceptions.py` | Unit | 8 | `GhibliError` 為基類；所有子類可統一 catch；`GitHubAPIError` 帶 status code；`ToolCallError` / `SessionError` / `OutputError` 繼承關係 |
 | `test_output.py` | Unit | 4 | `render_text()` 非空字串；空字串 fallback 為 `(no response)`；Rich Markdown 渲染路徑；`--json` 包 `{"response": ...}` |
 | `test_eval_queries.py` | Unit | 5 | `queries.yaml` YAML 可解析；每條必填欄位存在；`category` 合法；`ground_truth` 全員標註；`multi_step` 有 `tool_sequence` |

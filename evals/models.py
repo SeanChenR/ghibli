@@ -12,9 +12,9 @@ from litellm.exceptions import APIConnectionError as LiteLLMConnectionError
 from litellm.exceptions import RateLimitError as LiteLLMRateLimitError
 
 import ghibli.tools as _tools
+from ghibli.exceptions import ToolCallError
 from ghibli.prompt import get_system_prompt
 from ghibli.tool_schema import get_openai_tool_schemas
-from ghibli.exceptions import ToolCallError
 
 # Fixed date so eval ground truth remains reproducible across runs.
 _EVAL_DATE = "2026-04-22"
@@ -44,6 +44,7 @@ _MODEL_CONFIG: dict[str, dict] = {
     },
 }
 
+
 def _resolve_model_id(model_name: str, config: dict) -> str:
     """Resolve the LiteLLM model ID, supporting env-var-based dynamic model names."""
     if "model_env" in config:
@@ -69,16 +70,12 @@ def chat_with_model(
     """
     if model_name not in _MODEL_CONFIG:
         valid = ", ".join(sorted(_MODEL_CONFIG))
-        raise ToolCallError(
-            f"Unknown model '{model_name}'. Valid options: {valid}"
-        )
+        raise ToolCallError(f"Unknown model '{model_name}'. Valid options: {valid}")
 
     config = _MODEL_CONFIG[model_name]
     api_key_env = config.get("api_key_env")
     if api_key_env and not os.environ.get(api_key_env):
-        raise ToolCallError(
-            f"Missing required environment variable: {api_key_env}"
-        )
+        raise ToolCallError(f"Missing required environment variable: {api_key_env}")
 
     model_id = _resolve_model_id(model_name, config)
     extra_body = config.get("extra_body", {})
@@ -122,7 +119,9 @@ def chat_with_model(
             return msg.content or "", tools_called
 
         # Execute tool calls and feed results back
-        messages.append({"role": "assistant", "content": msg.content, "tool_calls": msg.tool_calls})
+        messages.append(
+            {"role": "assistant", "content": msg.content, "tool_calls": msg.tool_calls}
+        )
 
         for tc in msg.tool_calls:
             fn_name = tc.function.name
@@ -133,6 +132,7 @@ def chat_with_model(
             fn = getattr(_tools, fn_name, None)
             if fn is not None:
                 import inspect as _inspect
+
                 for param_name, param in _inspect.signature(fn).parameters.items():
                     if param_name in fn_args and isinstance(fn_args[param_name], str):
                         annotation = param.annotation
@@ -150,8 +150,10 @@ def chat_with_model(
             result_str = json.dumps(result, ensure_ascii=False, default=str)
             if len(result_str) > 4000:
                 result_str = result_str[:4000] + "... [truncated]"
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": result_str,
-            })
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": result_str,
+                }
+            )

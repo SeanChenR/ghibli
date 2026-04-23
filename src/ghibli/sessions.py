@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ghibli.exceptions import SessionError
 
-DB_PATH: Path = Path.home() / ".ghibli" / "sessions.db"
+DB_PATH: Path = Path.cwd() / ".ghibli" / "sessions.db"
 
 _SESSIONS_DDL = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -129,3 +129,24 @@ def get_turns(session_id: str) -> list[dict]:
     except sqlite3.Error as e:
         raise SessionError(str(e)) from e
     return [dict(row) for row in rows]
+
+
+def count_turns(session_id: str) -> int:
+    try:
+        with _get_connection() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM turns WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+    except sqlite3.Error as e:
+        raise SessionError(str(e)) from e
+    return int(row["n"]) if row else 0
+
+
+def delete_session(session_id: str) -> None:
+    try:
+        with _get_connection() as conn:
+            conn.execute("DELETE FROM turns WHERE session_id = ?", (session_id,))
+            conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+    except sqlite3.Error as e:
+        raise SessionError(str(e)) from e

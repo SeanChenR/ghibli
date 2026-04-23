@@ -22,3 +22,6 @@ openspec/.vector-search.db*
 
 # Environment variables
 .env
+
+# Project-local ghibli state (sessions.db, last_model)
+.ghibli/

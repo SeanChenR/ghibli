@@ -20,7 +20,7 @@ def test_missing_credentials_raises_tool_call_error(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
     with pytest.raises(ToolCallError) as exc_info:
-        chat("hello", "s1", False)
+        chat("hello", "s1", False, model="gemini-2.5-flash")
     msg = str(exc_info.value)
     assert "GEMINI_API_KEY" in msg
     assert "GOOGLE_CLOUD_PROJECT" in msg
@@ -41,7 +41,7 @@ def test_api_key_mode_initializes_client(monkeypatch):
         MockClient.return_value = mock_client
         mock_client.models.generate_content.return_value = mock_response
 
-        result = chat("hello", "s1", False)
+        result = chat("hello", "s1", False, model="gemini-2.5-flash")
 
     MockClient.assert_called_once_with(api_key="test_key")
     assert result == "Hello!"
@@ -63,7 +63,7 @@ def test_vertex_mode_initializes_client(monkeypatch):
         MockClient.return_value = mock_client
         mock_client.models.generate_content.return_value = mock_response
 
-        result = chat("hello", "s1", False)
+        result = chat("hello", "s1", False, model="gemini-2.5-flash")
 
     MockClient.assert_called_once_with(
         vertexai=True, project="my-project", location="us-central1"
@@ -85,7 +85,7 @@ def test_no_tool_call_returns_text(monkeypatch):
         MockClient.return_value = mock_client
         mock_client.models.generate_content.return_value = mock_response
 
-        result = chat("hello", "s1", False)
+        result = chat("hello", "s1", False, model="gemini-2.5-flash")
 
     assert result == "I can help you search GitHub!"
 
@@ -113,7 +113,7 @@ def test_function_calling_loop_executes_tool(monkeypatch):
         mock_client.models.generate_content.side_effect = [mock_response1, mock_response2]
 
         with patch("ghibli.agent.tools.search_repositories", return_value={"items": []}) as mock_tool:
-            result = chat("search python", "s1", False)
+            result = chat("search python", "s1", False, model="gemini-2.5-flash")
 
     mock_tool.assert_called_once_with(q="python")
     assert result == "Found Python repos!"
@@ -136,7 +136,7 @@ def test_session_history_appended_after_response(monkeypatch):
 
         with patch("ghibli.agent.sessions.get_turns", return_value=[]) as mock_get:
             with patch("ghibli.agent.sessions.append_turn") as mock_append:
-                chat("hi", "sess-1", False)
+                chat("hi", "sess-1", False, model="gemini-2.5-flash")
 
     mock_get.assert_called_once_with("sess-1")
     assert mock_append.call_count == 2
@@ -300,7 +300,7 @@ def test_gemini_tool_error_recovers_within_turn(monkeypatch):
 
         with patch("ghibli.github_api.execute", side_effect=_github_api_side_effect):
             with patch("ghibli.agent.sessions.append_turn") as mock_append:
-                result = chat("spectra-app repo", "s1", False)
+                result = chat("spectra-app repo", "s1", False, model="gemini-2.5-flash")
 
     assert result == "Found it!"
     assert mock_client.models.generate_content.call_count == 3
@@ -345,3 +345,169 @@ def test_explicit_model_overrides_env_var(monkeypatch):
 
     mock_gemini.assert_not_called()
     assert mock_lit.call_args[1]["model"] == "openai/gpt-4o-mini"
+
+
+# --- gemini: prefix routes chat to LiteLLM with Gemini provider ---
+
+
+def test_gemini_prefix_routes_through_litellm(monkeypatch):
+    """gemini:<slug> must route through LiteLLM with model=gemini/<slug>."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
+    monkeypatch.delenv("GHIBLI_MODEL", raising=False)
+
+    with patch("ghibli.agent.litellm.completion", return_value=_make_litellm_response("ok")) as mock_lit:
+        with patch("ghibli.agent.genai.Client") as mock_gemini:
+            result = chat("hi", "s1", False, model="gemini:gemma-4-26b-a4b-it")
+
+    mock_gemini.assert_not_called()
+    kwargs = mock_lit.call_args[1]
+    assert kwargs["model"] == "gemini/gemma-4-26b-a4b-it"
+    assert kwargs["api_key"] == "test-gemini-key"
+    assert "api_base" not in kwargs
+    assert result == "ok"
+
+
+def test_bare_gemini_model_still_uses_native_sdk(monkeypatch):
+    """Bare gemini-2.5-flash (no gemini: prefix) must use native google.genai.Client."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
+    monkeypatch.delenv("GHIBLI_MODEL", raising=False)
+
+    mock_resp = MagicMock()
+    mock_resp.function_calls = []
+    mock_resp.text = "hello"
+
+    with patch("ghibli.agent.genai.Client") as MockClient:
+        client = MagicMock()
+        MockClient.return_value = client
+        client.models.generate_content.return_value = mock_resp
+
+        with patch("ghibli.agent.litellm.completion") as mock_lit:
+            result = chat("hi", "s1", False, model="gemini-2.5-flash")
+
+    MockClient.assert_called_once_with(api_key="test-gemini-key")
+    mock_lit.assert_not_called()
+    assert result == "hello"
+
+
+def test_gemini_prefix_missing_api_key_raises(monkeypatch):
+    """gemini: prefix without GEMINI_API_KEY must raise ToolCallError."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GHIBLI_MODEL", raising=False)
+
+    with pytest.raises(ToolCallError) as exc_info:
+        chat("hi", "s1", False, model="gemini:gemma-4-26b-a4b-it")
+
+    assert "GEMINI_API_KEY" in str(exc_info.value)
+
+
+# --- on_tool_call callback invoked per tool dispatch ---
+
+
+def test_on_tool_call_gemini_path_invoked_per_dispatch(monkeypatch):
+    """Gemini native SDK path must invoke on_tool_call for every function call dispatched."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test_key")
+
+    fc1 = MagicMock()
+    fc1.name = "search_repositories"
+    fc1.args = {"q": "python"}
+
+    fc2 = MagicMock()
+    fc2.name = "get_repository"
+    fc2.args = {"owner": "x", "repo": "y"}
+
+    r1 = MagicMock(function_calls=[fc1, fc2])
+    r2 = MagicMock(function_calls=[], text="Done!")
+
+    calls: list = []
+
+    def cb(name, args):
+        calls.append((name, dict(args)))
+
+    with patch("ghibli.agent.genai.Client") as MockClient:
+        client = MagicMock()
+        MockClient.return_value = client
+        client.models.generate_content.side_effect = [r1, r2]
+
+        with patch("ghibli.agent.tools.search_repositories", return_value={"items": []}):
+            with patch("ghibli.agent.tools.get_repository", return_value={"full_name": "x/y"}):
+                result = chat("q", "s1", False, model="gemini-2.5-flash", on_tool_call=cb)
+
+    assert result == "Done!"
+    assert calls == [
+        ("search_repositories", {"q": "python"}),
+        ("get_repository", {"owner": "x", "repo": "y"}),
+    ]
+
+
+def test_on_tool_call_litellm_path_invoked_per_dispatch(monkeypatch):
+    """LiteLLM path (openai: / ollama: / gemini:) must also invoke on_tool_call."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    tc = MagicMock()
+    tc.id = "t1"
+    tc.function.name = "search_repositories"
+    tc.function.arguments = '{"q": "python"}'
+
+    msg1 = MagicMock()
+    msg1.tool_calls = [tc]
+    msg1.content = None
+    r1 = MagicMock(choices=[MagicMock(message=msg1)])
+
+    r2 = _make_litellm_response("All good!")
+
+    calls: list = []
+
+    def cb(name, args):
+        calls.append((name, dict(args)))
+
+    with patch("ghibli.agent.litellm.completion", side_effect=[r1, r2]):
+        with patch("ghibli.github_api.execute", return_value={"items": []}):
+            result = chat("q", "s1", False, model="openai:gpt-4o-mini", on_tool_call=cb)
+
+    assert result == "All good!"
+    assert calls == [("search_repositories", {"q": "python"})]
+
+
+def test_on_tool_call_default_none_keeps_legacy_behavior(monkeypatch):
+    """Without on_tool_call, chat() behavior is unchanged (no attribute errors)."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test_key")
+
+    r = MagicMock(function_calls=[], text="Hi")
+
+    with patch("ghibli.agent.genai.Client") as MockClient:
+        client = MagicMock()
+        MockClient.return_value = client
+        client.models.generate_content.return_value = r
+
+        # No on_tool_call kwarg — must work exactly as before
+        result = chat("hi", "s1", False, model="gemini-2.5-flash")
+
+    assert result == "Hi"
+
+
+def test_on_tool_call_exception_does_not_break_loop(monkeypatch, capsys):
+    """If the callback raises, chat() must still complete normally and log to stderr."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test_key")
+
+    fc = MagicMock()
+    fc.name = "search_repositories"
+    fc.args = {"q": "python"}
+
+    r1 = MagicMock(function_calls=[fc])
+    r2 = MagicMock(function_calls=[], text="Survived!")
+
+    def broken_cb(name, args):
+        raise RuntimeError("boom")
+
+    with patch("ghibli.agent.genai.Client") as MockClient:
+        client = MagicMock()
+        MockClient.return_value = client
+        client.models.generate_content.side_effect = [r1, r2]
+
+        with patch("ghibli.agent.tools.search_repositories", return_value={"items": []}):
+            result = chat("q", "s1", False, model="gemini-2.5-flash", on_tool_call=broken_cb)
+
+    assert result == "Survived!"
+    # Callback error should have been written to stderr
+    captured = capsys.readouterr()
+    assert "boom" in captured.err

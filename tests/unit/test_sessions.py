@@ -4,7 +4,9 @@ import pytest
 
 from ghibli.sessions import (
     append_turn,
+    count_turns,
     create_session,
+    delete_session,
     get_session,
     get_turns,
     list_all_sessions,
@@ -119,3 +121,74 @@ def test_get_turns_returns_insertion_order():
     assert len(turns) == 2
     assert "first" in turns[0]["content_json"]
     assert "second" in turns[1]["content_json"]
+
+
+# --- count_turns ---
+
+def test_count_turns_zero_for_new_session():
+    sid = create_session()
+    assert count_turns(sid) == 0
+
+
+def test_count_turns_reflects_appended_turns():
+    sid = create_session()
+    append_turn(sid, "user", "hello")
+    append_turn(sid, "assistant", "hi")
+    assert count_turns(sid) == 2
+
+
+def test_count_turns_unknown_id_returns_zero():
+    assert count_turns("does-not-exist") == 0
+
+
+# --- delete_session ---
+
+def test_delete_session_removes_empty_session():
+    sid = create_session()
+    delete_session(sid)
+    assert get_session(sid) is None
+    assert all(s["id"] != sid for s in list_all_sessions())
+
+
+def test_delete_session_removes_session_and_turns():
+    sid = create_session()
+    append_turn(sid, "user", "q1")
+    append_turn(sid, "assistant", "a1")
+    append_turn(sid, "user", "q2")
+    delete_session(sid)
+    assert get_session(sid) is None
+    assert get_turns(sid) == []
+
+
+def test_delete_session_unknown_id_is_noop():
+    # Should not raise
+    delete_session("nonexistent-id")
+
+
+# --- DB_PATH location (project-local .ghibli/sessions.db) ---
+
+
+def test_db_path_points_to_cwd_ghibli_directory(tmp_path, monkeypatch):
+    """DB_PATH SHALL resolve to <cwd>/.ghibli/sessions.db."""
+    import ghibli.sessions as sessions_module
+    import importlib
+
+    monkeypatch.chdir(tmp_path)
+    importlib.reload(sessions_module)
+    try:
+        assert sessions_module.DB_PATH == tmp_path / ".ghibli" / "sessions.db"
+    finally:
+        importlib.reload(sessions_module)  # restore module-level DB_PATH
+
+
+def test_ghibli_dir_autocreated_on_first_db_use(tmp_path, monkeypatch):
+    """`.ghibli/` SHALL be created automatically when a sessions function is first called."""
+    import ghibli.sessions as sessions_module
+
+    monkeypatch.setattr(sessions_module, "DB_PATH", tmp_path / ".ghibli" / "sessions.db")
+    assert not (tmp_path / ".ghibli").exists()
+
+    sessions_module.list_all_sessions()
+
+    assert (tmp_path / ".ghibli").is_dir()
+    assert (tmp_path / ".ghibli" / "sessions.db").exists()
