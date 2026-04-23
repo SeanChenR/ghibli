@@ -355,6 +355,45 @@ GPT-4o-mini 明知不可能，還是先呼叫 `search_repositories` 證明結果
 
 ---
 
+## 測試
+
+109 條測試、整體覆蓋率 88%，由 `pyproject.toml` 強制 `--cov-fail-under=80` 門檻。單元測試 mock 掉外部依賴（`litellm.completion`、`genai.Client`、`httpx`、SQLite）；整合測試用 `@pytest.mark.integration` 標記、真的打外部 API。
+
+```bash
+uv run pytest                           # 預設全跑
+uv run pytest -m "not integration"      # 只跑 unit（適合 CI，無外網依賴）
+uv run pytest tests/integration/        # 只跑整合測試
+```
+
+| 檔案 | 類型 | 數量 | 測什麼 |
+|---|---|---|---|
+| `test_agent.py` | Unit | 16 | Gemini SDK + LiteLLM 雙路徑 routing；`--model` 覆寫 `GHIBLI_MODEL` env；`openai:` / `ollama:` prefix 解析；tool 失敗可恢復（error 塞回給 LLM 不 raise）；session turn 持久化 |
+| `test_cli.py` | Unit | 10 | Typer 對話 loop；`--version` / `--list-sessions` / `--json` / `--session` / `--model` flag；空行 / EOF 優雅退出；`GhibliError` 不中斷 session；未知 session id 拒絕 |
+| `test_github_api.py` | Unit | 9 | `execute()` URL path 參數替換；`GITHUB_TOKEN` Authorization header；User-Agent；404 / 500 / timeout → `GitHubAPIError`；unknown tool → `ToolCallError` |
+| `test_tools.py` | Unit | 13 | 13 個 tool 函式 imports；參數轉發到 `github_api.execute()`；`list_commits` 略過 `None` optional；`get_readme` base64 解碼 + 3000 字截斷 + 非 base64 回原樣 |
+| `test_tool_schema.py` | Unit | 4 | Python docstring + type hint → OpenAI-compatible schema 轉換；13 tools 全列；schema 結構合法（type/properties/required） |
+| `test_sessions.py` | Unit | 11 | `~/.ghibli/sessions.db` 首次自動建立；UUID session id；CRUD（get / list / append）；turn 含 tool metadata；空 session 回空；插入順序保留 |
+| `test_exceptions.py` | Unit | 8 | `GhibliError` 為基類；所有子類可統一 catch；`GitHubAPIError` 帶 status code；`ToolCallError` / `SessionError` / `OutputError` 繼承關係 |
+| `test_output.py` | Unit | 4 | `render_text()` 非空字串；空字串 fallback 為 `(no response)`；Rich Markdown 渲染路徑；`--json` 包 `{"response": ...}` |
+| `test_eval_queries.py` | Unit | 5 | `queries.yaml` YAML 可解析；每條必填欄位存在；`category` 合法；`ground_truth` 全員標註；`multi_step` 有 `tool_sequence` |
+| `test_eval_runner.py` | Unit | 9 | `run_query()` pass / fail / error 分類；結果 append 不覆蓋；`--category` filter；`judge_result` 嵌入；`--model` 記錄；accuracy 為 float；unknown model 退出非 0 |
+| `test_judge.py` | Unit | 8 | 單一 tool match / mismatch；順序正確 / 逆序 fail；`tool: none` 哨兵；non-contiguous subsequence 過 |
+| `test_models.py` | Unit | 8 | `evals/models.py` LiteLLM wrapper：4 個模型 model_id resolution；unknown model / 缺 API key → `ToolCallError`；回傳 `(str, list[str])` |
+| `test_compare_models.py` | Unit | 3 | 跨模型比較 Markdown 表產生：3 列資料；accuracy 顯示為小數點後 1 位百分比；缺席模型不產生 row |
+| `test_github_api_integration.py` | **Integration** | 1 | 活打 `api.github.com` 的 `search_repositories("python")`，驗證實際 JSON 結構、CI 預設跳過 |
+
+**為什麼沒追 100% 覆蓋率**
+
+剩下的 ~12% 主要在三類 code：
+
+- **連線 / rate limit / timeout 錯誤分支**：要測得 mock `litellm.exceptions.RateLimitError` + 偽造 Retry-After，寫起來腐爛快、回報低
+- **SQLite CRUD 的「session 不存在」early return**：測了只是證明 `if row is None: return None`
+- **13 個 tool wrapper 的 `return github_api.execute(...)` 轉發層**：結構一致，測頭尾的範本已足以保證其餘相同
+
+業界共識 80% 是 sweet spot；投入 80% → 100% 所需時間和 0% → 80% 相當，但抓到的 bug 只多 2–5%。這個專案刻意停在 88%，把心力花在 eval 的 30 條 ground truth 上反而更實際。
+
+---
+
 ## 已知限制
 
 ### 1. 模糊輸入只能近似

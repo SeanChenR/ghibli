@@ -36,6 +36,9 @@ where = ["src"]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "--cov=src/ghibli --cov-report=term-missing --cov-fail-under=80"
+markers = [
+    "integration: integration tests that hit real external APIs (GitHub, Gemini, etc.)",
+]
 
 [tool.ruff]
 line-length = 88
