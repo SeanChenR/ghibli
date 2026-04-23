@@ -12,7 +12,7 @@
   3. `<cwd>/.ghibli/last_model`（picker 選完自動寫回）
   4. `picker.choose_model()` 互動選（含 onboarding）
   5. 全落空 → `typer.Exit(code=1)` 並印錯誤；`--model-picker` flag 強制走第 4 步
-- **多後端路由**：`agent.chat()` 以 prefix 決定——`openai:<slug>` / `ollama:<slug>` / `gemini:<slug>` 走 LiteLLM，無 prefix 走 Gemini 原生 SDK；`gemini:` 專給 Gemma-4 等 Gemini API 上的非主力模型
+- **多後端路由**：`agent.chat()` 以 prefix 決定——`openai:<slug>` / `ollama:<slug>` / `gemma:<slug>` 走 LiteLLM，無 prefix 走 Gemini 原生 SDK；`gemma:` 專給 Gemma-4 等 Gemini API 上的 open-weight 模型（LiteLLM model id 內部仍是 `gemini/<slug>`）
 - **Picker 設計**：一律顯示 5 個 provider（不看環境變數偵測），使用者選完檢查該 provider 的 credential env var 是否 set；不 set 則跑 provider-specific onboarding（API Key 類 prompt hidden input，Vertex 類指引 `gcloud auth application-default login` + project id）寫入 `.env`
 - **`.env` 只讀 cwd**：`load_dotenv(dotenv_path=Path.cwd() / ".env", override=True)` 明確指定，避免 python-dotenv 預設往上找到 `~/.env`
 - **SDK 注意**：`tools` 必須放在 `config=GenerateContentConfig(tools=..., automatic_function_calling=AutomaticFunctionCallingConfig(disable=True))`，SDK >= 1.0 不接受直接 kwarg

@@ -252,7 +252,7 @@ tests:
 ---
 ### Requirement: --model flag selects model and bypasses picker
 
-The CLI SHALL accept a `--model <name>` option. When provided, its value SHALL be passed to `agent.chat(...)` as the `model` keyword argument and SHALL take precedence over the `GHIBLI_MODEL` environment variable and `<cwd>/.ghibli/last_model`. Accepted formats include a bare model name (e.g., `gemini-2.5-flash`) and prefixed forms (`openai:<slug>`, `ollama:<slug>`, `gemini:<slug>`).
+The CLI SHALL accept a `--model <name>` option. When provided, its value SHALL be passed to `agent.chat(...)` as the `model` keyword argument and SHALL take precedence over the `GHIBLI_MODEL` environment variable and `<cwd>/.ghibli/last_model`. Accepted formats include a bare model name (e.g., `gemini-2.5-flash`) and prefixed forms (`openai:<slug>`, `ollama:<slug>`, `gemma:<slug>`).
 
 Passing `--model` SHALL NOT update `<cwd>/.ghibli/last_model` — the value is used for this run only.
 

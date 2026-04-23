@@ -347,17 +347,17 @@ def test_explicit_model_overrides_env_var(monkeypatch):
     assert mock_lit.call_args[1]["model"] == "openai/gpt-4o-mini"
 
 
-# --- gemini: prefix routes chat to LiteLLM with Gemini provider ---
+# --- gemma: prefix routes chat to LiteLLM with Gemini provider ---
 
 
-def test_gemini_prefix_routes_through_litellm(monkeypatch):
-    """gemini:<slug> must route through LiteLLM with model=gemini/<slug>."""
+def test_gemma_prefix_routes_through_litellm(monkeypatch):
+    """gemma:<slug> must route through LiteLLM with model=gemini/<slug>."""
     monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
     monkeypatch.delenv("GHIBLI_MODEL", raising=False)
 
     with patch("ghibli.agent.litellm.completion", return_value=_make_litellm_response("ok")) as mock_lit:
         with patch("ghibli.agent.genai.Client") as mock_gemini:
-            result = chat("hi", "s1", False, model="gemini:gemma-4-26b-a4b-it")
+            result = chat("hi", "s1", False, model="gemma:gemma-4-26b-a4b-it")
 
     mock_gemini.assert_not_called()
     kwargs = mock_lit.call_args[1]
@@ -368,7 +368,7 @@ def test_gemini_prefix_routes_through_litellm(monkeypatch):
 
 
 def test_bare_gemini_model_still_uses_native_sdk(monkeypatch):
-    """Bare gemini-2.5-flash (no gemini: prefix) must use native google.genai.Client."""
+    """Bare gemini-2.5-flash (no gemma: prefix) must use native google.genai.Client."""
     monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
     monkeypatch.delenv("GHIBLI_MODEL", raising=False)
 
@@ -389,13 +389,13 @@ def test_bare_gemini_model_still_uses_native_sdk(monkeypatch):
     assert result == "hello"
 
 
-def test_gemini_prefix_missing_api_key_raises(monkeypatch):
-    """gemini: prefix without GEMINI_API_KEY must raise ToolCallError."""
+def test_gemma_prefix_missing_api_key_raises(monkeypatch):
+    """gemma: prefix without GEMINI_API_KEY must raise ToolCallError."""
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GHIBLI_MODEL", raising=False)
 
     with pytest.raises(ToolCallError) as exc_info:
-        chat("hi", "s1", False, model="gemini:gemma-4-26b-a4b-it")
+        chat("hi", "s1", False, model="gemma:gemma-4-26b-a4b-it")
 
     assert "GEMINI_API_KEY" in str(exc_info.value)
 
@@ -440,7 +440,7 @@ def test_on_tool_call_gemini_path_invoked_per_dispatch(monkeypatch):
 
 
 def test_on_tool_call_litellm_path_invoked_per_dispatch(monkeypatch):
-    """LiteLLM path (openai: / ollama: / gemini:) must also invoke on_tool_call."""
+    """LiteLLM path (openai: / ollama: / gemma:) must also invoke on_tool_call."""
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
 
     tc = MagicMock()

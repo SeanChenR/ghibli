@@ -189,21 +189,21 @@ def chat(
             on_tool_call=on_tool_call,
         )
 
-    # Route Gemma (and other Gemini-hosted variants) via LiteLLM with `gemini:` prefix
-    if ghibli_model.startswith("gemini:"):
-        gemini_slug = ghibli_model[len("gemini:") :]
+    # Route Gemma (and other Gemini-hosted open-weight variants) via LiteLLM with `gemma:` prefix
+    if ghibli_model.startswith("gemma:"):
+        gemma_slug = ghibli_model[len("gemma:") :]
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             raise ToolCallError(
-                "GEMINI_API_KEY is required for `gemini:` LiteLLM mode. "
+                "GEMINI_API_KEY is required for `gemma:` LiteLLM mode. "
                 "Get yours at https://aistudio.google.com/app/apikey"
             )
         return _chat_litellm(
             user_message,
             session_id,
-            model_id=f"gemini/{gemini_slug}",
+            model_id=f"gemini/{gemma_slug}",
             api_key=api_key,
-            provider_label="Gemini",
+            provider_label="Gemma",
             on_tool_call=on_tool_call,
         )
 

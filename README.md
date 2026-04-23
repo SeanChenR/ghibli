@@ -84,7 +84,7 @@ ghibli --model-picker
 |---|---|---|---|
 | 1 | Gemini 2.5 Flash (API Key) | `GEMINI_API_KEY` | `gemini-2.5-flash`（native SDK） |
 | 2 | Gemini 2.5 Flash (Vertex AI) | `GOOGLE_CLOUD_PROJECT` + `gcloud auth application-default login` | `gemini-2.5-flash`（native SDK，自動走 Vertex） |
-| 3 | Gemma-4-26b（開源權重） | `GEMINI_API_KEY` | `gemini:gemma-4-26b-a4b-it`（LiteLLM） |
+| 3 | Gemma-4-26b（開源權重） | `GEMINI_API_KEY` | `gemma:gemma-4-26b-a4b-it`（LiteLLM） |
 | 4 | OpenAI | `OPENAI_API_KEY`（`OPENAI_MODEL` 選用，預設 `gpt-4o-mini`，[完整清單](https://developers.openai.com/api/docs/models/all)） | `openai:<slug>`（LiteLLM） |
 | 5 | Ollama Cloud | `OLLAMA_API_KEY`（`OLLAMA_CLOUD_MODEL` 選用，預設 `qwen3.5:cloud`，[完整清單](https://ollama.com/search?c=cloud)） | `ollama:<slug>`（LiteLLM） |
 
@@ -122,9 +122,14 @@ GHIBLI_MODEL=ollama:qwen3.5:cloud uv run ghibli     # env var 優先
 echo "query" | uv run ghibli --model openai:gpt-4o-mini  # 非 TTY 必須帶 --model
 ```
 
-路由規則：值以 `openai:` / `ollama:` / `gemini:` 開頭走 LiteLLM；其他值（如 `gemini-2.5-flash`）走 Gemini 原生 SDK（此時 `GEMINI_API_KEY` > `GOOGLE_CLOUD_PROJECT` 決定 API Key / Vertex 路徑）。
+路由規則：值以 `openai:` / `ollama:` / `gemma:` 開頭走 LiteLLM；其他值（如 `gemini-2.5-flash`）走 Gemini 原生 SDK（此時 `GEMINI_API_KEY` > `GOOGLE_CLOUD_PROJECT` 決定 API Key / Vertex 路徑）。
 
-**credential 自動補洞**：即使是用 `--model` bypass picker，model 解析完成後仍會跑 `picker.ensure_credentials`——如果該 provider 的 env var 沒設，TTY 下會即時 prompt 輸入 key 寫到 `.env`；非 TTY 則直接 exit 1 並在 stderr 印出缺哪個 key。這樣 `ghibli --model openai:gpt-4o` 在沒 `OPENAI_API_KEY` 時不會拖到第一輪 chat 才炸，會在啟動時就問。
+**啟動時自動檢查 credential**：model 決定完之後（不管是 `--model`、env、`last_model` 還是 picker 選的），`ghibli` 會立刻檢查對應的 API key / Vertex project 有沒有設好：
+
+- **你在終端機裡手動跑**：缺 key 時直接 prompt 你貼上來，幫你寫進 `<cwd>/.env`，然後才進對話畫面。
+- **你用腳本 / pipe / CI 跑**（沒人可以即時輸入）：缺 key 時直接 exit 1，在 stderr 印出缺哪個 env var。
+
+所以 `ghibli --model openai:gpt-4o` 在沒 `OPENAI_API_KEY` 的時候，**啟動就會問**，不會等你打完第一句 query 才炸。
 
 ### 專案本地狀態：`.ghibli/` 目錄
 
@@ -447,7 +452,7 @@ uv run pytest tests/integration/        # 只跑整合測試
 
 | 檔案 | 類型 | 數量 | 測什麼 |
 |---|---|---|---|
-| `test_agent.py` | Unit | 23 | Gemini SDK + LiteLLM 三條 prefix routing（`openai:` / `ollama:` / `gemini:`）；`--model` 覆寫 `GHIBLI_MODEL` env；`on_tool_call` callback（Gemini + LiteLLM 兩路徑，例外不中斷 loop）；tool 失敗可恢復（error 塞回給 LLM 不 raise）；session turn 持久化；missing credentials → `ToolCallError` |
+| `test_agent.py` | Unit | 23 | Gemini SDK + LiteLLM 三條 prefix routing（`openai:` / `ollama:` / `gemma:`）；`--model` 覆寫 `GHIBLI_MODEL` env；`on_tool_call` callback（Gemini + LiteLLM 兩路徑，例外不中斷 loop）；tool 失敗可恢復（error 塞回給 LLM 不 raise）；session turn 持久化；missing credentials → `ToolCallError` |
 | `test_cli.py` | Unit | 27 | Typer 對話 loop + `--version` / `--list-sessions` / `--json` / `--session` / `--model` / `--model-picker` flag；model 解析 4 層優先順序 + 無 silent default；picker 接入 + `ensure_credentials`；welcome banner / spinner / tool viz；session save hint + 空 session 自動刪；`--help` 不顯示 Typer completion；`load_dotenv` 用明確 cwd 路徑；home `.env` 不污染 |
 | `test_picker.py` | Unit | 24 | `choose_model` 固定列 5 選項 + 選完 `write_last_model`；非 TTY 回 None；5 選項 → identifier 對應表；`run_onboarding` 寫 `.env` / 已有 key 時 `sys.exit(0)`；`append_env_var` 三分支（缺檔建立 / 已存 append / 有該 key 拒寫）；`read_last_model` / `write_last_model` round-trip；Vertex AI onboarding 印 `gcloud auth application-default login` + 寫 project id；`ensure_credentials` 對 4 種 prefix 的檢查與 raise |
 | `test_github_api.py` | Unit | 9 | `execute()` URL path 參數替換；`GITHUB_TOKEN` Authorization header；User-Agent；404 / 500 / timeout → `GitHubAPIError`；unknown tool → `ToolCallError` |

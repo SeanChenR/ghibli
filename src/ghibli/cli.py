@@ -64,7 +64,7 @@ def main(
             "--model",
             help=(
                 "Model to use. Examples: gemini-2.5-flash, openai:gpt-4o-mini, "
-                "gemini:gemma-4-26b-a4b-it, ollama:qwen3.5:cloud. "
+                "gemma:gemma-4-26b-a4b-it, ollama:qwen3.5:cloud. "
                 "Overrides GHIBLI_MODEL env var and .ghibli/last_model."
             ),
         ),

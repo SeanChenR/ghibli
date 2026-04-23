@@ -128,7 +128,7 @@ def test_choose_model_option_mapping(monkeypatch, tmp_path):
     expected = {
         1: "gemini-2.5-flash",
         2: "gemini-2.5-flash",  # Vertex AI uses same identifier; routing differs via env
-        3: "gemini:gemma-4-26b-a4b-it",
+        3: "gemma:gemma-4-26b-a4b-it",
         4: "openai:gpt-4o-mini",
         5: "ollama:qwen3.5:cloud",
     }
@@ -240,8 +240,8 @@ def test_write_last_model_creates_dir_and_file(tmp_path: Path, monkeypatch):
 
 def test_write_then_read_round_trip(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    write_last_model("gemini:gemma-4-26b-a4b-it")
-    assert read_last_model() == "gemini:gemma-4-26b-a4b-it"
+    write_last_model("gemma:gemma-4-26b-a4b-it")
+    assert read_last_model() == "gemma:gemma-4-26b-a4b-it"
 
 
 def test_write_last_model_overwrites_previous(tmp_path: Path, monkeypatch):

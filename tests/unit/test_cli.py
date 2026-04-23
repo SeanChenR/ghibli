@@ -259,10 +259,10 @@ def test_model_flag_beats_last_model(runner, tmp_path, monkeypatch):
         with patch("ghibli.agent.chat", return_value="ok") as mock_chat:
             with patch("ghibli.cli.render_text"):
                 result = runner.invoke(
-                    app, ["--model", "gemini:gemma-4-26b-a4b-it"], input="hi\n\n"
+                    app, ["--model", "gemma:gemma-4-26b-a4b-it"], input="hi\n\n"
                 )
     assert result.exit_code == 0
-    assert mock_chat.call_args.kwargs["model"] == "gemini:gemma-4-26b-a4b-it"
+    assert mock_chat.call_args.kwargs["model"] == "gemma:gemma-4-26b-a4b-it"
     # --model passage SHALL NOT overwrite .ghibli/last_model
     assert last_file.read_text(encoding="utf-8") == "openai:gpt-4o-mini\n"
 
@@ -332,14 +332,14 @@ def test_model_picker_flag_forces_picker_even_with_last_model(runner, tmp_path, 
     with patch("ghibli.sessions.create_session", return_value="stub-id"):
         with patch(
             "ghibli.cli.picker.choose_model",
-            return_value="gemini:gemma-4-26b-a4b-it",
+            return_value="gemma:gemma-4-26b-a4b-it",
         ) as mock_choose:
             with patch("ghibli.agent.chat", return_value="ok") as mock_chat:
                 with patch("ghibli.cli.render_text"):
                     result = runner.invoke(app, ["--model-picker"], input="hi\n\n")
     assert result.exit_code == 0
     mock_choose.assert_called_once()
-    assert mock_chat.call_args.kwargs["model"] == "gemini:gemma-4-26b-a4b-it"
+    assert mock_chat.call_args.kwargs["model"] == "gemma:gemma-4-26b-a4b-it"
 
 
 def test_model_picker_flag_ignores_model_flag(runner, tmp_path, monkeypatch):

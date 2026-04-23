@@ -130,7 +130,7 @@ _PROVIDERS: list[_Provider] = [
     ),
     _Provider(
         display="Gemma-4-26b (open-weight, via Gemini API)",
-        identifier_fn=lambda: "gemini:gemma-4-26b-a4b-it",
+        identifier_fn=lambda: "gemma:gemma-4-26b-a4b-it",
         credential_env="GEMINI_API_KEY",
         onboard=lambda: _onboard_api_key(
             "GEMINI_API_KEY", "https://aistudio.google.com/app/apikey"
@@ -241,7 +241,7 @@ def ensure_credentials(model_id: str) -> None:
                 "OLLAMA_API_KEY",
             )
         return
-    if model_id.startswith("gemini:"):
+    if model_id.startswith("gemma:"):
         if not os.environ.get("GEMINI_API_KEY"):
             _interactive_or_raise(
                 lambda: _onboard_api_key(
