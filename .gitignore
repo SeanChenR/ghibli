@@ -17,6 +17,8 @@ openspec/.vector-search.db*
 
 # Claude Code local settings (permissions, personal config)
 .claude/settings.local.json
+# Claude Code scheduled-task runtime lock (auto-generated during a session)
+.claude/scheduled_tasks.lock
 
 # Environment variables
 .env
