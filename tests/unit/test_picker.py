@@ -124,6 +124,7 @@ def test_choose_model_option_mapping(monkeypatch, tmp_path):
     monkeypatch.setenv("OLLAMA_API_KEY", "z")
     monkeypatch.delenv("GHIBLI_MODEL", raising=False)
     monkeypatch.delenv("OLLAMA_CLOUD_MODEL", raising=False)
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
 
     expected = {
         1: "gemini-2.5-flash",
@@ -143,7 +144,8 @@ def test_choose_model_writes_last_model(monkeypatch, tmp_path):
     """After user picks, <cwd>/.ghibli/last_model is written with the identifier."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENAI_API_KEY", "y")
-    for var in ("GEMINI_API_KEY", "GOOGLE_CLOUD_PROJECT", "OLLAMA_API_KEY", "GHIBLI_MODEL"):
+    for var in ("GEMINI_API_KEY", "GOOGLE_CLOUD_PROJECT", "OLLAMA_API_KEY",
+                "GHIBLI_MODEL", "OPENAI_MODEL", "OLLAMA_CLOUD_MODEL"):
         monkeypatch.delenv(var, raising=False)
 
     with patch("ghibli.picker.sys.stdin.isatty", return_value=True):
@@ -163,7 +165,7 @@ def test_run_onboarding_writes_key_and_returns_model(monkeypatch, tmp_path: Path
     monkeypatch.chdir(tmp_path)
     # All creds absent so picker selection triggers onboarding
     for var in ("GEMINI_API_KEY", "GOOGLE_CLOUD_PROJECT", "OPENAI_API_KEY",
-                "OLLAMA_API_KEY", "GHIBLI_MODEL"):
+                "OLLAMA_API_KEY", "GHIBLI_MODEL", "OPENAI_MODEL", "OLLAMA_CLOUD_MODEL"):
         monkeypatch.delenv(var, raising=False)
 
     def fake_prompt(text, default=None, type=None, hide_input=False, **kwargs):

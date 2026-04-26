@@ -6,7 +6,14 @@ import json
 from pathlib import Path
 
 
-_CATEGORIES = ["qualifier", "temporal", "typo", "contradiction", "multi_step", "tool_selection"]
+_CATEGORIES = [
+    "discover",
+    "compare",
+    "debug_hunt",
+    "track_vuln",
+    "follow_up",
+    "refuse",
+]
 
 
 def _latest_run_per_model(runs: list[dict]) -> dict[str, dict]:
@@ -43,36 +50,42 @@ def generate_report(runs: list[dict]) -> str:
     if not latest:
         return "_No eval runs found._\n"
 
-    header = "| Model | Overall | Qualifier | Temporal | Typo | Contradiction | Multi-Step | Tool Selection |"
-    separator = "| ----- | ------- | --------- | -------- | ---- | ------------- | ---------- | -------------- |"
-    rows = [header, separator]
+    category_headers = [c.replace("_", " ").title() for c in _CATEGORIES]
+    header_cells = ["Model", "Overall"] + category_headers
+    separator_cells = ["-" * len(c) for c in header_cells]
+    rows = [
+        "| " + " | ".join(header_cells) + " |",
+        "| " + " | ".join(separator_cells) + " |",
+    ]
 
     for model in sorted(latest.keys()):
         run = latest[model]
         overall = f"{run.get('accuracy', 0.0) * 100:.1f}%"
         results = run.get("results", [])
-        qualifier = _category_accuracy(results, "qualifier")
-        temporal = _category_accuracy(results, "temporal")
-        typo = _category_accuracy(results, "typo")
-        contradiction = _category_accuracy(results, "contradiction")
-        multi_step = _category_accuracy(results, "multi_step")
-        tool_selection = _category_accuracy(results, "tool_selection")
-        rows.append(f"| {model} | {overall} | {qualifier} | {temporal} | {typo} | {contradiction} | {multi_step} | {tool_selection} |")
+        cells = [model, overall] + [_category_accuracy(results, c) for c in _CATEGORIES]
+        rows.append("| " + " | ".join(cells) + " |")
 
     return "\n".join(rows) + "\n"
 
 
-def _categories_present(results: list[dict]) -> list[str]:
-    seen = {r.get("category") for r in results}
-    return [c for c in _CATEGORIES if c in seen]
+def _load_all_runs(results_dir: Path) -> list[dict]:
+    """Load and flatten runs from every per-model JSON file in results_dir."""
+    all_runs: list[dict] = []
+    for path in sorted(results_dir.glob("*.json")):
+        file_runs = json.loads(path.read_text(encoding="utf-8"))
+        all_runs.extend(file_runs)
+    return all_runs
 
 
 def main() -> None:
-    results_path = Path(__file__).parent / "results.json"
-    if not results_path.exists():
-        print("No results.json found. Run `uv run python evals/run_evals.py` first.")
+    results_dir = Path(__file__).parent / "results"
+    if not results_dir.exists() or not any(results_dir.glob("*.json")):
+        print(
+            "No results found in evals/results/. "
+            "Run `uv run python evals/run_evals.py --model <name>` first."
+        )
         return
-    runs: list[dict] = json.loads(results_path.read_text(encoding="utf-8"))
+    runs = _load_all_runs(results_dir)
     print(generate_report(runs))
 
 

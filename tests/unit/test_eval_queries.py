@@ -4,7 +4,14 @@ import yaml
 
 QUERIES_PATH = Path(__file__).parent.parent.parent / "evals" / "queries.yaml"
 
-VALID_CATEGORIES = {"qualifier", "temporal", "typo", "contradiction", "multi_step", "tool_selection"}
+VALID_CATEGORIES = {
+    "discover",
+    "compare",
+    "debug_hunt",
+    "track_vuln",
+    "follow_up",
+    "refuse",
+}
 REQUIRED_FIELDS = {"id", "category", "query", "expected_behavior", "difficulty", "notes"}
 VALID_TOOL_NAMES = {
     "search_repositories",
@@ -20,7 +27,8 @@ VALID_TOOL_NAMES = {
     "search_users",
     "search_issues",
     "get_readme",
-    "none",  # sentinel: model should explain without calling any tool
+    "none",    # legacy sentinel: model should explain without calling any tool
+    "refuse",  # refuse scenario: partial refusal with valid_parts_tool_sequence + refusal_keywords
 }
 
 
@@ -62,14 +70,39 @@ def test_every_query_entry_carries_ground_truth_annotation():
         )
 
 
-def test_multi_step_entries_have_tool_sequence():
+def test_refuse_entries_have_required_refuse_fields():
+    data = yaml.safe_load(QUERIES_PATH.read_text(encoding="utf-8"))
+    refuse_entries = [e for e in data if e["category"] == "refuse"]
+    assert len(refuse_entries) >= 5, "refuse category should have at least 5 entries"
+    for entry in refuse_entries:
+        gt = entry["ground_truth"]
+        assert gt["tool"] == "refuse", (
+            f"refuse entry '{entry.get('id')}' ground_truth.tool must be 'refuse'"
+        )
+        assert "valid_parts_tool_sequence" in gt, (
+            f"refuse entry '{entry.get('id')}' missing 'valid_parts_tool_sequence'"
+        )
+        assert "refusal_keywords" in gt, (
+            f"refuse entry '{entry.get('id')}' missing 'refusal_keywords'"
+        )
+        assert len(gt["refusal_keywords"]) >= 1, (
+            f"refuse entry '{entry.get('id')}' refusal_keywords is empty"
+        )
+
+
+def test_non_refuse_entries_have_tool_sequence():
+    # All non-refuse queries must declare a tool_sequence (at least 1 tool).
+    # After the GT audit, some debug_hunt/track_vuln queries legitimately require
+    # only one tool (e.g. search_issues with repo: qualifier is scoped already),
+    # so we no longer require >= 2.
     data = yaml.safe_load(QUERIES_PATH.read_text(encoding="utf-8"))
     for entry in data:
-        if entry["category"] == "multi_step":
-            gt = entry.get("ground_truth", {})
-            assert "tool_sequence" in gt, (
-                f"multi_step entry '{entry.get('id')}' missing ground_truth.tool_sequence"
-            )
-            assert len(gt["tool_sequence"]) >= 2, (
-                f"multi_step entry '{entry.get('id')}' tool_sequence has < 2 tools"
-            )
+        if entry["category"] == "refuse":
+            continue
+        gt = entry.get("ground_truth", {})
+        assert "tool_sequence" in gt, (
+            f"entry '{entry.get('id')}' missing ground_truth.tool_sequence"
+        )
+        assert len(gt["tool_sequence"]) >= 1, (
+            f"entry '{entry.get('id')}' tool_sequence is empty"
+        )

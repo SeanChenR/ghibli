@@ -84,17 +84,17 @@ class TestChatWithModelRouting:
         assert called_model == "gemini/gemma-4-26b-a4b-it"
 
     @patch("evals.models.litellm.completion")
-    def test_gpt4o_mini_uses_correct_model_id(self, mock_completion: MagicMock) -> None:
+    def test_gpt5_mini_uses_correct_model_id(self, mock_completion: MagicMock) -> None:
         _require_module()
         mock_completion.return_value = _make_fake_litellm_response()
 
         with patch.dict(os.environ, {"OPENAI_API_KEY": "fake-key"}):
-            chat_with_model("hello", session_id="s1", model_name="gpt4o-mini")
+            chat_with_model("hello", session_id="s1", model_name="gpt5-mini")
 
         called_model = mock_completion.call_args[1].get(
             "model", mock_completion.call_args[0][0] if mock_completion.call_args[0] else None
         )
-        assert called_model == "openai/gpt-4o-mini"
+        assert called_model == "openai/gpt-5-mini-2025-08-07"
 
     @patch("evals.models.litellm.completion")
     def test_ollama_cloud_uses_correct_model_id(self, mock_completion: MagicMock) -> None:
@@ -122,7 +122,7 @@ class TestChatWithModelUnknownModel:
         # The error message should hint at valid options
         assert any(
             name in error_msg
-            for name in ("gemini", "gemma4", "gpt4o-mini", "valid")
+            for name in ("gemini", "gemma4", "gpt5-mini", "valid")
         ), f"Error message did not mention valid model names: {exc_info.value}"
 
 

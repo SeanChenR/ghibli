@@ -25,3 +25,7 @@ openspec/.vector-search.db*
 
 # Project-local ghibli state (sessions.db, last_model)
 .ghibli/
+
+# Local-only eval artifacts (history / archive / snapshots / legacy).
+# Only evals/results/ (final per-model results) is version controlled.
+evals/results-local/

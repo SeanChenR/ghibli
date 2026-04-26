@@ -1,443 +1,753 @@
 # ghibli eval query catalog
-# 30 test cases across 6 categories (5 each)
-# category: qualifier | temporal | typo | contradiction | multi_step | tool_selection
+# 30 test cases across 6 scenario categories (5 each) + multi-label failure_modes tags
 #
-# qualifier:      測試 LLM 是否能將自然語言語意精確對應到 GitHub API 特定 qualifier
-# temporal:       測試時間語意推理（pushed: vs created:、日期範圍、相對時間計算）
-# typo:           測試 typo 自動修正後再呼叫正確工具
-# contradiction:  測試邏輯上不可能的查詢，模型應解釋而非呼叫工具（含一個 TRAP）
-# multi_step:     測試多步驟工具串接，部分包含新增工具
-# tool_selection: 測試在 13 個工具中選出正確工具的能力（核心 hardening edge case）
+# Scenario category (required, one per query) — 「使用者在做什麼」:
+#   discover:    發掘陌生工具/repo（沒有明確目標，靠搜尋找候選）
+#   compare:     對比兩個以上的選項
+#   debug_hunt:  找類似 bug / issue — 我遇到某錯誤，有人遇過嗎？
+#   track_vuln:  安全事件 / 版本追蹤
+#   follow_up:   對已知 repo 深挖（contributors / releases / commits / README / 語言分佈）
+#   refuse:      模型應識別為不可行並拒絕呼叫工具（可混合正常與矛盾子問題）
 #
-# ground_truth.tool: one of the 13 tool names, or "none" (model should explain without calling)
-# ground_truth.tool_sequence: ordered list for multi-step queries (judge checks subsequence)
+# failure_modes (optional, excludes primary scenario — used for cross-category analysis):
+#   // 輸入形態類
+#   multilingual:        語言本身是 stressor（非中英、或非中英混雜）
+#   ambiguous_input:     使用者給的資訊不完整或印象模糊，模型要推理
+#   messy_phrasing:      口語 / 俚語 / 低標點 / 大小寫亂 / run-on 句型
+#   outdated_assumption: 使用者預設錯誤事實，測模型會不會 push back
+#   typo:                使用者打錯字（package 名、model 名、repo 名）
+#   // 失敗機制類（舊版本曾是 primary category，現降級為 tag）:
+#   qualifier_mapping:   自然語言 → GitHub API qualifier 精確對應（license:mit SPDX 等）
+#   temporal_reasoning:  時間語意推理、日期換算（pushed: vs created:、相對時間）
+#   tool_routing:        在 13 個工具中挑對正確的那一個
+#
+# query_language (optional): 只在非中文/非英文 query 才標（e.g., "ja", "ko"）
+# query_meaning (optional, required when query_language is set): 包含中文 + English 翻譯
+#
+# ground_truth.tool: one of the 13 tool names, or "refuse" (refuse scenario)
+# ground_truth.tool_sequence: list of required tools (judge uses multiset subset —
+#   every required tool must appear in tools_called at least as many times;
+#   order is ignored because data flow naturally enforces ordering).
+#
+# Content validation for divergent (Type B) queries — multiple tool paths can
+# yield a correct answer, so we also inspect the model's reply:
+#   ground_truth.required_content_all: every keyword MUST appear in response_text
+#   ground_truth.required_content_any_of: list of groups; each group needs at
+#     least one keyword to match
+# Example for a bun/pnpm/npm comparison:
+#   required_content_all: ["bun", "pnpm", "npm"]
+#   required_content_any_of:
+#     - ["package manager", "dependency"]
+#
+# For refuse scenario (tool: refuse) — judge.py must pass response_text to check keyword:
+#   ground_truth.valid_parts_tool_sequence: tools allowed for the valid sub-question
+#   ground_truth.refusal_keywords: keywords expected in response text for explicit refusal
+#   judge pass rule: multiset_subset(valid_parts_tool_sequence, tools_called) AND any keyword in response
+#
+# Most queries are multi-step (tool_sequence has >=2 tools). A few are
+# single-tool when the one tool is functionally sufficient — e.g. search_issues
+# with a `repo:owner/name` qualifier already scopes the search, so requiring a
+# separate get_repository call would be redundant discipline, not functional.
 
 # ──────────────────────────────────────────────────────────────
-# Category 1: qualifier (5)
-# 測試 LLM 對 GitHub Search API qualifier 的精確對應能力
+# Category 1: discover (5)
+# 發掘陌生工具/repo（沒有明確目標，靠搜尋找候選）
 # ──────────────────────────────────────────────────────────────
 
-- id: qualifier-001
-  category: qualifier
-  query: "找使用 MIT License、超過 5000 顆星的 Rust 系統工具"
-  expected_behavior: "calls search_repositories with license:mit language:rust stars:>5000"
+- id: discover-001
+  category: discover
+  failure_modes: [ ambiguous_input ]
+  query: "幫我找一下有什麼熱門的 Spec Driven Development (SDD) 工具？然後他們具體差別是在哪，有特別適合什麼場景嗎？"
+  expected_behavior: "searches for popular SDD tools, fetches top candidates'
+    details to compare differences and use cases"
   difficulty: medium
   notes: |
-    「MIT License」必須對應到 SPDX ID license:mit，
-    而非 license:MIT-License 或其他錯誤形式。
-    測試 LLM 是否知道 GitHub API 使用 SPDX 識別碼。
-  ground_truth:
-    tool: search_repositories
-    params:
-      q_contains: "rust"
-
-- id: qualifier-002
-  category: qualifier
-  query: "幫我找仍在維護的 Vue.js 元件庫，不要已經廢棄或封存的專案"
-  expected_behavior: "calls search_repositories with vue components archived:false"
-  difficulty: medium
-  notes: |
-    「廢棄/封存」應對應到 archived:false。
-    預設搜尋會包含 archived repo；測試 LLM 能否識別語意並加上此 qualifier。
-  ground_truth:
-    tool: search_repositories
-    params:
-      q_contains: "vue"
-
-- id: qualifier-003
-  category: qualifier
-  query: "找 README 裡有提到 'zero dependencies' 的輕量 JavaScript 工具"
-  expected_behavior: "calls search_repositories with 'zero dependencies in:readme language:javascript'"
-  difficulty: hard
-  notes: |
-    「README 裡提到」應對應到 in:readme qualifier。
-    若不加 in:readme 則只搜尋 repo 名稱和 description，
-    測試 LLM 是否知道可以限定搜尋範圍到 readme 內容。
-    Hardened: 之前 Gemini 直接從訓練資料回答而沒有呼叫工具，應強制呼叫 API。
-  ground_truth:
-    tool: search_repositories
-    params:
-      q_contains: "javascript"
-
-- id: qualifier-004
-  category: qualifier
-  query: "我想為開源貢獻程式碼，找有超過 10 個 good first issue 的 Python 新手友好專案"
-  expected_behavior: "calls search_repositories with language:python good-first-issues:>10"
-  difficulty: hard
-  notes: |
-    「good first issue」應對應到 good-first-issues:>10 qualifier。
-    這是少見但語意直接的 qualifier；
-    測試 LLM 是否知道此 qualifier 的存在而非僅用 stars:>N 代替。
-  ground_truth:
-    tool: search_repositories
-    params:
-      q_contains: "python"
-
-- id: qualifier-005
-  category: qualifier
-  query: "找使用 Apache-2.0 授權、最近六個月仍有人在維護的 Go 微服務框架"
-  expected_behavior: "calls search_repositories with license:apache-2.0 language:go pushed:>2025-10-22"
-  difficulty: hard
-  notes: |
-    複合 qualifier：license:apache-2.0 + language:go + pushed: 日期。
-    「最近六個月」需換算為 pushed:>2025-10-22（2026-04-22 往前六個月）。
-    測試 LLM 是否能同時處理多個 qualifier 並正確計算相對時間。
-  ground_truth:
-    tool: search_repositories
-    params:
-      q_contains: "go"
-
-# ──────────────────────────────────────────────────────────────
-# Category 2: temporal (5)
-# 測試時間語意推理：pushed: 與 created: 的區別、日期範圍、相對時間計算
-# ──────────────────────────────────────────────────────────────
-
-- id: temporal-001
-  category: temporal
-  query: "找 2025 年才建立、但 star 數已超過 1000 的新興 AI coding tool"
-  expected_behavior: "calls search_repositories with created:>2025-01-01 stars:>1000"
-  difficulty: medium
-  notes: |
-    同時用 created:>2025-01-01 限定「新的」和 stars:>1000 限定「已有影響力」。
-    測試 LLM 能否正確使用 created: qualifier。
-  ground_truth:
-    tool: search_repositories
-    params:
-      q_contains: "AI"
-
-- id: temporal-002
-  category: temporal
-  query: "找最近三個月內仍有人更新的 Kubernetes operator，確認還在積極維護"
-  expected_behavior: "calls search_repositories with kubernetes operator pushed:>2026-01-22"
-  difficulty: hard
-  notes: |
-    「最近三個月內有人更新」應對應 pushed: qualifier（最後 push 時間），
-    而非 created:（建立時間）。
-    測試 LLM 能否區分「維護活躍度」（pushed）與「建立時間」（created）的語意差異。
-  ground_truth:
-    tool: search_repositories
-    params:
-      q_contains: "kubernetes"
-
-- id: temporal-003
-  category: temporal
-  query: "搜尋 2021 年到 2022 年之間建立的 GraphQL 框架"
-  expected_behavior: "calls search_repositories with graphql framework created:2021-01-01..2022-12-31"
-  difficulty: medium
-  notes: |
-    「A 年到 B 年」應對應 GitHub API 的 .. 範圍語法（created:2021-01-01..2022-12-31），
-    而非兩個獨立 qualifier。測試 LLM 是否知道 GitHub Search API 的日期範圍語法。
-  ground_truth:
-    tool: search_repositories
-    params:
-      q_contains: "graphql"
-
-- id: temporal-004
-  category: temporal
-  query: "找超過五年都沒有更新但仍有大量 star 的 PHP legacy 框架"
-  expected_behavior: "calls search_repositories with php framework pushed:<2021-01-01 stars:>2000"
-  difficulty: hard
-  notes: |
-    「五年都沒更新」以今年（2026）計算應為 pushed:<2021-01-01。
-    測試 LLM 是否能正確計算相對時間並轉換為絕對日期。
-  ground_truth:
-    tool: search_repositories
-    params:
-      q_contains: "php"
-
-- id: temporal-005
-  category: temporal
-  query: "找 2024 年整年建立、現在已有超過 2000 顆星的 TypeScript 全端框架"
-  expected_behavior: "calls search_repositories with typescript created:2024-01-01..2024-12-31 stars:>2000"
-  difficulty: hard
-  notes: |
-    「2024 年整年」需轉成 created:2024-01-01..2024-12-31 範圍語法，而非 created:>2024-01-01。
-    同時結合 stars:>2000 條件，測試複合 temporal + qualifier 語意解析。
-  ground_truth:
-    tool: search_repositories
-    params:
-      q_contains: "typescript"
-
-# ──────────────────────────────────────────────────────────────
-# Category 3: typo (5)
-# 測試 LLM 在呼叫 API 前自動修正 typo 的能力
-# ──────────────────────────────────────────────────────────────
-
-- id: typo-001
-  category: typo
-  query: "pytohn 最多星星的 repo"
-  expected_behavior: "corrects pytohn→python, calls search_repositories with language:python sorted by stars"
-  difficulty: easy
-  notes: "pytohn 是 python 的常見拼字錯誤（字母對調）"
-  ground_truth:
-    tool: search_repositories
-    params:
-      q_contains: "python"
-
-- id: typo-002
-  category: typo
-  query: "找 djangoo 相關的 web 框架"
-  expected_behavior: "corrects djangoo→django, calls search_repositories with django web framework"
-  difficulty: easy
-  notes: "djangoo 多一個 o，是 django 的常見拼字錯誤"
-  ground_truth:
-    tool: search_repositories
-    params:
-      q_contains: "django"
-
-- id: typo-003
-  category: typo
-  query: "facebok/react 的 open issues"
-  expected_behavior: "corrects facebok→facebook, calls list_issues for facebook/react"
-  difficulty: easy
-  notes: "facebok 少一個 o，是 facebook 的常見拼字錯誤，語意明確指向特定 repo"
-  ground_truth:
-    tool: list_issues
-    params:
-      owner: "facebook"
-      repo: "react"
-
-- id: typo-004
-  category: typo
-  query: "microsfot/vscode 最新的 PR"
-  expected_behavior: "corrects microsfot→microsoft, calls list_pull_requests for microsoft/vscode"
-  difficulty: medium
-  notes: "microsfot 是 microsoft 的常見拼字錯誤（sf 字母對調）"
-  ground_truth:
-    tool: list_pull_requests
-    params:
-      owner: "microsoft"
-      repo: "vscode"
-
-- id: typo-005
-  category: typo
-  query: "找 flaskk 的最新 release"
-  expected_behavior: "corrects flaskk→flask, searches for pallets/flask, then calls list_releases"
-  difficulty: medium
-  notes: |
-    flaskk 多一個 k；flask 的官方 org 是 pallets（非 flask）。
-    需推斷 owner 為 pallets 後才能呼叫 list_releases。
-  ground_truth:
-    tool: list_releases
-    params:
-      owner: "pallets"
-      repo: "flask"
-
-# ──────────────────────────────────────────────────────────────
-# Category 4: contradiction (5)
-# 測試邏輯不可能的查詢（模型應說明並拒絕呼叫）+ 一個 TRAP（看似矛盾但實際可行）
-# ──────────────────────────────────────────────────────────────
-
-- id: contradiction-001
-  category: contradiction
-  query: "找 star 超過 100 萬的 repo"
-  expected_behavior: "explains that no repo has 1M+ stars; does not call any tool"
-  difficulty: medium
-  notes: "GitHub 最多約 24 萬 star（torvalds/linux），100 萬不可能；模型應解釋而非搜尋"
-  ground_truth:
-    tool: none
-
-- id: contradiction-002
-  category: contradiction
-  query: "列出一個同時是 open 又是 closed 的 PR"
-  expected_behavior: "explains that a PR cannot be both open and closed simultaneously"
-  difficulty: hard
-  notes: "PR 狀態互斥，邏輯上不可能同時為 open 和 closed；模型應說明不呼叫工具"
-  ground_truth:
-    tool: none
-
-- id: contradiction-003
-  category: contradiction
-  query: "找一個 2090 年建立的 repo"
-  expected_behavior: "explains that 2090 is a future date; does not call any tool"
-  difficulty: medium
-  notes: "2090 年是未來，不可能有 repo；模型應解釋時間矛盾"
-  ground_truth:
-    tool: none
-
-- id: contradiction-004
-  category: contradiction
-  query: "找 fork 數是 star 數 1000 倍的熱門 JavaScript 框架"
-  expected_behavior: "explains that forks cannot be 1000x stars; does not call any tool"
-  difficulty: hard
-  notes: |
-    Fork 數幾乎不可能超過 star 數（通常是 star 的 5-20%）；
-    1000 倍的 fork 數從未存在。模型應識別此為不可能條件。
-  ground_truth:
-    tool: none
-
-- id: contradiction-005
-  category: contradiction
-  query: "找 star 數是 fork 數 20 倍以上的熱門 Python 框架"
-  expected_behavior: "calls search_repositories — this is NOT a contradiction, star >> fork is normal"
-  difficulty: hard
-  notes: |
-    TRAP QUERY：star >> fork 是完全正常的情況（大多數熱門 repo 的比例都超過 20:1）。
-    模型「不應」識別這為矛盾；應直接呼叫 search_repositories 搜尋。
-    測試模型是否錯誤地將「正常現象」判斷為不可能，從而拒絕呼叫工具。
-  ground_truth:
-    tool: search_repositories
-    params:
-      q_contains: "python"
-
-# ──────────────────────────────────────────────────────────────
-# Category 5: multi_step (5)
-# 測試多步驟工具串接；部分涉及新增工具（list_commits, search_users）
-# ──────────────────────────────────────────────────────────────
-
-- id: multi_step-001
-  category: multi_step
-  query: "找 star 最多的 Python 機器學習框架，再看它有哪些 open PR"
-  expected_behavior: "calls search_repositories for ML framework, then list_pull_requests for top result"
-  difficulty: medium
-  notes: |
-    兩步：search_repositories → list_pull_requests。
-    測試 LLM 能否從搜尋結果中取得 owner/repo，再用於下一個工具呼叫。
-  ground_truth:
-    tool: list_pull_requests
-    tool_sequence:
-      - search_repositories
-      - list_pull_requests
-
-- id: multi_step-002
-  category: multi_step
-  query: "先取得 torvalds/linux 的 repo 詳細資訊，再看最近 5 個 commit"
-  expected_behavior: "calls get_repository for torvalds/linux, then list_commits per_page:5"
-  difficulty: medium
-  notes: |
-    兩步：get_repository → list_commits。
-    测試 LLM 能否正確串接 get_repository（metadata）和 list_commits（history）。
-  ground_truth:
-    tool: list_commits
-    params:
-      owner: "torvalds"
-      repo: "linux"
-    tool_sequence:
-      - get_repository
-      - list_commits
-
-- id: multi_step-003
-  category: multi_step
-  query: "找 star 最多的 Go web framework，先取得它的 repo 資訊，再看最近有哪些 release"
-  expected_behavior: "calls search_repositories for Go web framework, then get_repository, then list_releases"
-  difficulty: hard
-  notes: |
-    三步查詢：search_repositories → get_repository → list_releases。
-    測試 LLM 在三步驟中持續追蹤正確的 owner/repo context。
-  ground_truth:
-    tool: list_releases
-    tool_sequence:
-      - search_repositories
-      - get_repository
-      - list_releases
-
-- id: multi_step-004
-  category: multi_step
-  query: "查詢 yyx990803 的 GitHub 個人資料，再看 vuejs/vue 這個 repo 的詳細資訊"
-  expected_behavior: "calls get_user for yyx990803 (Evan You), then get_repository for vuejs/vue"
-  difficulty: medium
-  notes: |
-    yyx990803 是 Evan You（Vue.js 作者）的 GitHub username，
-    兩步：get_user → get_repository
+    SDD 賽道在 2026 相當熱——候選包括 github/spec-kit（72K+ stars，GitHub 官方）、
+    Fission-AI/OpenSpec、BMAD-METHOD、AWS Kiro 等。
+    使用者不指名任何工具，也不給線索；模型要先 search 找到候選，再分別查細節比較「差別」和「適合場景」。
+    「差別 / 適合場景」= get_repository 的 description 能簡答；get_readme 可做更深回答。
+    judging 只看 tool + sequence，不限定是哪個 SDD 工具。
   ground_truth:
     tool: get_repository
-    params:
-      owner: "vuejs"
-      repo: "vue"
     tool_sequence:
-      - get_user
+      - search_repositories
       - get_repository
 
-- id: multi_step-005
-  category: multi_step
-  query: "找 GitHub 上 follower 最多的 Go 語言開發者，再看他的 GitHub 個人資料"
-  expected_behavior: "calls search_users for Go developers sorted by followers, then get_user"
-  difficulty: hard
-  notes: |
-    兩步：search_users → get_user。
-    「找人」應使用 search_users（不是 search_repositories）；
-    取到排名第一的 username 後，再呼叫 get_user 取詳細資料。
-  ground_truth:
-    tool: get_user
-    tool_sequence:
-      - search_users
-      - get_user
-
-# ──────────────────────────────────────────────────────────────
-# Category 6: tool_selection (5)
-# 核心 hardening：在 13 個工具中選出正確工具
-# 每條 query 都有一個「誘人的錯誤工具」，測試模型能否做出正確選擇
-# ──────────────────────────────────────────────────────────────
-
-- id: tool_selection-001
-  category: tool_selection
-  query: "pallets/flask 的程式碼用了哪些語言？Python 大概佔幾 bytes？"
-  expected_behavior: "calls get_languages(owner=pallets, repo=flask) — NOT get_repository"
+- id: discover-002
+  category: discover
+  failure_modes: [ ambiguous_input ]
+  query: "AI Agent 的 Skills 現在好多種，有沒有什麼 Repo 是整理好一些實用的 Skills，比較熱門的具體都有什麼？"
+  expected_behavior: "searches for agent skills aggregator repos, fetches README to list contents"
   difficulty: medium
   notes: |
-    誘人的錯誤工具：get_repository（它的 language 欄位只回傳主要語言字串）。
-    get_languages 才能回傳完整語言分布（bytes of code per language）。
-    測試模型是否知道兩個工具在語言資訊上的差異。
+    AI agent skills 在 2026 形成龐大生態——anthropics/skills（官方）、VoltAgent/awesome-agent-skills
+    （1000+）、sickn33/antigravity-awesome-skills（1200+）、travisvn/awesome-claude-skills 等。
+    使用者不指名任何 repo，模型要 search 找熱門 awesome 列表，再 get_readme 看內容。
+    「整理好一些實用的 Skills」+「具體都有什麼」= 必須讀 README 才能列舉內容；get_repository 的 description 只給一句話。
+    judging 不限定具體 repo；任何熱門 awesome list 都算對。
   ground_truth:
-    tool: get_languages
-    params:
-      owner: "pallets"
-      repo: "flask"
+    tool: get_readme
+    tool_sequence:
+      - search_repositories
+      - get_readme
 
-- id: tool_selection-002
-  category: tool_selection
-  query: "找目前 GitHub 上所有 Python repo 裡開放中、標記了 good-first-issue 的 issue"
-  expected_behavior: "calls search_issues with is:issue label:good-first-issue language:python is:open"
+- id: discover-003
+  category: discover
+  failure_modes: [ ambiguous_input ]
+  query: "最近要做 RAG，一堆 PDF 跟 Word 要轉乾淨文字丟給 LLM，有什麼熱門的文件 parser 工具？最主流的幾個是哪些？"
+  expected_behavior: "searches for popular document parsers, fetches top
+    candidates' details, reads README to summarize each parser's specialty"
+  difficulty: medium
+  notes: |
+    2026 document parser 主流選擇：
+    - microsoft/markitdown（Microsoft，Python，file→Markdown，支援 PDF/DOCX/PPTX/XLSX/image/audio）
+    - docling-project/docling（IBM，結構化 DoclingDocument，production RAG 導向）
+    - opendatalab/mineru（star 數最多，CJK 強項）
+    - VikParuchuri/marker（PDF→Markdown 預設首選，支援 GPU/CPU/Apple MPS）
+    - Unstructured-IO/unstructured（library + managed platform）
+    - run-llama/liteparse（LlamaIndex 出品）
+    - opendataloader-project/opendataloader-pdf（structured JSON + bbox，本地無 GPU）
+    使用者不指名任何 repo；「最主流的幾個是哪些」= 要能列出多個 + 說明各自專長，
+    所以強制讀 README（不讀 README 沒辦法簡述 parser 特色）。
+    ambiguous_input：「熱門」「最主流」開放式，任一個主流 parser 被模型命中都算對。
+    judging：search + get_repository + get_readme 三步全要。
+  ground_truth:
+    tool: get_readme
+    tool_sequence:
+      - search_repositories
+      - get_readme
+
+- id: discover-004
+  category: discover
+  failure_modes: [ ambiguous_input, multilingual ]
+  query: "CI에서 LLM eval을 돌릴 수 있는 오픈소스 framework가 뭐가 있어요? 주류 몇 개는 각자 어떤 스타일인가요?"
+  query_language: ko
+  query_meaning: |
+    中文: 想在 CI 裡跑 LLM eval，有什麼開源 framework 可以用？主流的幾個各自是什麼風格？
+    English: What open-source frameworks can I use to run LLM evals in CI? What styles are the mainstream ones?
+  expected_behavior: "searches for LLM eval frameworks, fetches top candidates,
+    reads README to summarize each style"
+  difficulty: medium
+  notes: |
+    2026 主流 LLM eval framework：
+    - promptfoo/promptfoo（CLI + library，declarative YAML config，red-teaming，used by OpenAI + Anthropic）
+    - confident-ai/deepeval（Pytest 風格 unit-test LLM，50+ metrics）
+    - UKGovernmentBEIS/inspect_ai（UK AI Safety Institute，scripted eval plans、tool calls、model-graded rubrics）
+    - openai/evals（OpenAI 官方 eval framework）
+    - explodinggradients/ragas（RAG 評估專用）
+    - comet-ml/opik（Comet 的 open-source LLM eval，已 free）
+    使用者不指名 framework；「風格」= 必須讀 README 才能簡述（pytest-like / YAML-declarative / scripted 等）。
+    ambiguous_input：「主流」「風格」開放式，任一個主流 framework 被命中都算對。
+    judging：search + get_repository + get_readme 三步全要。
+  ground_truth:
+    tool: get_readme
+    tool_sequence:
+      - search_repositories
+      - get_readme
+
+- id: discover-005
+  category: discover
+  failure_modes: [ ambiguous_input, messy_phrasing ]
+  query: "Claude Code plugin 最近生態爆炸，有哪幾個特別熱門？為什麼會紅？"
+  expected_behavior: "searches for popular Claude Code plugins or awesome lists,
+    fetches README to explain popularity"
+  difficulty: medium
+  notes: |
+    2026 Claude Code plugin 生態：
+    - anthropics/claude-plugins-official（Anthropic 官方 marketplace，啟動 Claude Code 自動可用）
+    - ComposioHQ/awesome-claude-plugins（production-ready 精選）
+    - hesreallyhim/awesome-claude-code（skills / hooks / commands / plugins 合集）
+    - Chat2AnyLLM/awesome-claude-plugins（43 marketplaces / 834+ plugins，2026/01 統計）
+    - quemsah/awesome-claude-plugins（自動化抓取 adoption metrics）
+    使用者不指名；「為什麼會紅」= 讀 README 才能理解 plugin 解決什麼痛點。
+    messy_phrasing：「生態爆炸」口語；ambiguous_input：「熱門」「為什麼」開放式。
+    judging：search + get_repository + get_readme 三步全要；任一個主流 plugin 或 awesome list 被命中都算對。
+  ground_truth:
+    tool: get_readme
+    tool_sequence:
+      - search_repositories
+      - get_readme
+
+# ──────────────────────────────────────────────────────────────
+# Category 2: compare (5)
+# 對比兩個以上的選項
+# ──────────────────────────────────────────────────────────────
+
+- id: compare-001
+  category: compare
+  failure_modes: [ ambiguous_input ]
+  query: "最近討論度很高的兩個開源 AI agent framework——OpenClaw 跟 Hermes Agent——各自受歡迎的原因是什麼？具體差別在哪？"
+  expected_behavior: "fetches openclaw/openclaw + NousResearch/hermes-agent details and compares their appeal / differences"
+  difficulty: medium
+  notes: |
+    2-way named compare：OpenClaw (openclaw/openclaw, 2026 年最快破 300K stars) vs Hermes Agent (NousResearch/hermes-agent)。
+    兩個都是 open-source AI agent framework，但目標群不同：
+    OpenClaw 偏 personal AI assistant（lobster 吉祥物品牌）、Hermes Agent 強調 self-improving learning loop。
+    query 直接點名兩個 repo，content_validation 確保答案 mention 兩者。
+    ambiguous_input：「受歡迎的原因」「具體差別」open-ended 判斷維度。
+    tool path：search + get_readme 或 get_repository + get_readme 都合理。
+  ground_truth:
+    tool: get_readme
+    tool_sequence:
+      - search_repositories
+      - get_readme
+
+- id: compare-002
+  category: compare
+  failure_modes: [ ambiguous_input, messy_phrasing ]
+  query: "幫我比較一下 Nextjs 跟最近很火紅的 TanStack Start，為什麼 TanStack 最近生態熱度這麼高？"
+  expected_behavior: "fetches Next.js and TanStack repos, compares stars/activity
+    to explain the rise"
+  difficulty: medium
+  notes: |
+    Next.js = vercel/next.js（主導地位）；TanStack Start 是 TanStack 家族裡 2025 末進 RC、
+    2026 快速崛起的新 full-stack React framework，實際放在 TanStack/router monorepo 底下。
+    messy_phrasing：「Nextjs」（沒 dot）、「火紅」口語。
+    ambiguous_input：「熱度」開放式，可以 star / commit / release 任一個維度。
+    模型可直接 get_repository 拿兩邊 stars + pushed_at + description 回答；若要更深可加
+    list_commits / list_releases。judging 不檢查回答內容，2 次 get_repository 就算過。
+  ground_truth:
+    tool: get_repository
+    tool_sequence:
+      - get_repository
+      - get_repository
+
+- id: compare-003
+  category: compare
+  failure_modes: [ ambiguous_input, multilingual ]
+  query: "Prisma oder Drizzle — welche sollte ich wählen? Drizzle wird in letzter
+    Zeit immer beliebter, lohnt sich der Wechsel?"
+  query_language: de
+  query_meaning: |
+    中文: Prisma 跟 Drizzle 我應該選哪個？最近 Drizzle 好像越來越多人在推，值得換嗎？
+    English: Prisma or Drizzle — which should I choose? Drizzle has been getting more traction lately; is it worth switching?
+  expected_behavior: "fetches prisma/prisma and drizzle-team/drizzle-orm, compares
+    stars/activity/positioning"
+  difficulty: medium
+  notes: |
+    Prisma (prisma/prisma) 是 mature TypeScript ORM，生態完整但有 runtime overhead；
+    Drizzle (drizzle-team/drizzle-orm) 是 2024–2026 崛起的新銳，類 SQL 語法、無 runtime overhead，
+    2026 TypeScript 社群風頭正盛。
+    ambiguous_input：「應該選哪個」沒給選擇維度（效能？DX？schema 風格？migration？）；
+    「值得換嗎」= 主觀判斷，需資料支撐。
+    模型應 get_repository 兩邊拿 stars / pushed_at / description；若要更深可加 get_readme。
+  ground_truth:
+    tool: get_repository
+    tool_sequence:
+      - get_repository
+      - get_repository
+
+- id: compare-004
+  category: compare
+  failure_modes: [ ambiguous_input ]
+  query: "我該用 bun、pnpm 還是 npm 當 package manager？各自適合什麼場景？"
+  expected_behavior: "fetches oven-sh/bun, pnpm/pnpm, npm/cli, compares their
+    features/activity/use cases"
   difficulty: hard
   notes: |
-    誘人的錯誤工具：list_issues（只能查單一 repo）。
-    「所有 Python repo 裡的 issue」是跨 repo 搜尋，必須用 search_issues。
-    這是之前 GPT-4o-mini 的實際 failure case（錯誤使用了 list_issues）。
+    3-way compare: bun (oven-sh/bun, all-in-one runtime+pm)、pnpm (pnpm/pnpm, disk-efficient + monorepo-friendly)、
+    npm (npm/cli, Node 內建標準)。
+    ambiguous_input：「適合什麼場景」開放式；模型要自己從 description / README 推論各自定位。
+    3 個 repo 都要 get_repository；一般情況模型會並行拿。
+    judging 要求 3 次 get_repository（subsequence），model 只 fetch 2 個就算沒做完 3-way compare，fails。
+  ground_truth:
+    tool: get_repository
+    tool_sequence:
+      - get_repository
+      - get_repository
+      - get_repository
+
+- id: compare-005
+  category: compare
+  failure_modes: [ ambiguous_input ]
+  query: "Python 寫 AI app 的三個主流 framework——LangChain、LangGraph、Google Agent
+    Development Kit——各自的設計理念是什麼？什麼場景用哪個？"
+  expected_behavior: "fetches langchain, langgraph, and google/adk-python repos,
+    compares design philosophies and use cases"
+  difficulty: hard
+  notes: |
+    3-way Python AI framework 對比：
+    - LangChain (langchain-ai/langchain)：2023 起家的通用 LLM framework、chain 導向
+    - LangGraph (langchain-ai/langgraph)：LangChain 同公司、2024 推出的 graph-based agent orchestration
+    - Google ADK (google/adk-python)：Google 2025 推出的 code-first agent toolkit，bi-weekly release cadence
+    注意：LangChain 和 LangGraph 是同一個 org (langchain-ai)，model 要能認知這點——
+    兩者不是競爭而是互補（LangGraph 常跑在 LangChain 之上）。
+    ambiguous_input：「設計理念」「什麼場景用哪個」開放式。
+    judging：3 次 get_repository（subsequence）。
+  ground_truth:
+    tool: get_repository
+    tool_sequence:
+      - get_repository
+      - get_repository
+      - get_repository
+
+# ──────────────────────────────────────────────────────────────
+# Category 3: debug_hunt (5)
+# 找類似 bug / issue — 我遇到某錯誤，有人遇過嗎？
+# ──────────────────────────────────────────────────────────────
+
+- id: debug_hunt-001
+  category: debug_hunt
+  failure_modes: [ messy_phrasing, multilingual ]
+  query: "Trang Next.js của tôi hiển thị ngày tháng cứ bị hydration mismatch, SSR
+    với client không khớp, bực quá"
+  query_language: vi
+  query_meaning: |
+    中文: 我的 Next.js page 顯示日期一直 hydration mismatch，SSR 跟 client 對不起來，超煩
+    English: My Next.js page keeps getting hydration mismatch on dates — SSR and client don't match, so annoying
+  expected_behavior: "searches vercel/next.js for SSR hydration + date/timezone issues"
+  difficulty: medium
+  notes: |
+    對應真實：vercel/next.js discussion #35773（"Hydration failed because the initial UI does not match"）
+    及眾多 SSR date hydration 討論。典型原因：server 在 UTC、browser 在 local timezone，
+    `new Date()` / `toLocaleString()` 兩邊結果不同。
+    messy_phrasing：「超煩」口語抱怨，沒貼完整 error stack。
+    模型應在 vercel/next.js 搜 "hydration date" / "SSR timezone" 類關鍵字。
   ground_truth:
     tool: search_issues
     params:
-      q_contains: "python"
+      q_contains: "next.js"
+    tool_sequence:
+      - search_issues
 
-- id: tool_selection-003
-  category: tool_selection
-  query: "GitHub 上有哪些 Python 程式碼使用了 asyncio.run 這個函數？"
-  expected_behavior: "calls search_code with q='asyncio.run language:python'"
+- id: debug_hunt-002
+  category: debug_hunt
+  failure_modes: [ messy_phrasing ]
+  query: "我的 langchain agent 一直 infinite loop，呼叫完 tool 又繼續呼叫同一個，有人遇過嗎？"
+  expected_behavior: "searches langchain-ai/langchain (or langgraph) for infinite tool call loops"
   difficulty: medium
   notes: |
-    誘人的錯誤工具：search_repositories（只能搜尋 repo 元資料）。
-    「程式碼裡有用到某個函數」是在搜尋原始碼內容，必須用 search_code。
-    測試模型是否能區分「搜 repo」和「搜 code」的適用場景。
+    對應真實：langchain-ai/langchain#26019（"Prevent Infinite Tool Call Loop"）、#11751、
+    langchain-ai/langgraph#6731（"Agent infinite looping until recursion limit"）。
+    messy_phrasing：口語描述症狀，沒有正式 error message。
+    模型應在 langchain-ai/langchain 或 langgraph 搜 "infinite loop" / "recursion limit"。
   ground_truth:
-    tool: search_code
+    tool: search_issues
     params:
-      q_contains: "asyncio.run"
+      q_contains: "langchain"
+    tool_sequence:
+      - search_issues
 
-- id: tool_selection-004
-  category: tool_selection
-  query: "我想了解 pallets/flask 這個專案，幫我看看它的 README 說了什麼"
-  expected_behavior: "calls get_readme(owner=pallets, repo=flask) — NOT get_repository"
-  difficulty: medium
-  notes: |
-    誘人的錯誤工具：get_repository（不包含 README 文字內容）。
-    get_readme 才能回傳解碼後的 README Markdown 文字。
-    測試模型是否知道有獨立的 get_readme 工具。
-  ground_truth:
-    tool: get_readme
-    params:
-      owner: "pallets"
-      repo: "flask"
-
-- id: tool_selection-005
-  category: tool_selection
-  query: "找 star 最多的 Python 資料視覺化 repo，再看它的完整語言分布"
-  expected_behavior: "calls search_repositories then get_languages for the top result"
+- id: debug_hunt-003
+  category: debug_hunt
+  failure_modes: [ ambiguous_input ]
+  query: "我從 prisma 搬到 drizzle，drizzle-kit generate 出來的 migration SQL 怪怪的，一直要 drop
+    我本來就有的 FK，遇過嗎？"
+  expected_behavior: "searches drizzle-team/drizzle-orm for Prisma migration inconsistency issues"
   difficulty: hard
   notes: |
-    兩步：search_repositories → get_languages。
-    「完整語言分布」需要 get_languages，不是 get_repository 的 language 欄位。
-    測試模型能否在多步驟中正確選擇 get_languages 而非 get_repository。
+    對應真實：drizzle-team/drizzle-orm discussion #2114（"Inconsistent migrations when migrating from Prisma"）。
+    ambiguous_input：使用者只說「怪怪的」、「一直 drop FK」——沒提 schema、沒貼 SQL。
+    模型應在 drizzle-team/drizzle-orm 搜 "migration prisma" / "drop foreign key"。
   ground_truth:
-    tool: get_languages
+    tool: search_issues
+    params:
+      q_contains: "drizzle"
+    tool_sequence:
+      - search_issues
+
+- id: debug_hunt-004
+  category: debug_hunt
+  failure_modes: [ outdated_assumption ]
+  query: "shadcn/ui 升到 tailwind v4 之後，Select 的 dropdown 整個透明看不到，是 z-index 問題嗎？"
+  expected_behavior: "searches tailwindlabs/tailwindcss or shadcn-ui/ui for v4
+    transparent dropdown, pushes back on the z-index assumption"
+  difficulty: hard
+  notes: |
+    對應真實：tailwindlabs/tailwindcss discussion #17137（"Tailwind v4 + Radix UI (shadcn) Dropdown/Select Transparent After Upgrade"）。
+    實際原因：v4 改用 CSS 變數驅動 color，`bg-popover` 沒對應到 HSL 定義，rendering 成透明。
+    outdated_assumption：使用者猜「z-index 問題」——經典 dropdown debug 直覺，但 v4 真正原因是 CSS 變數格式變了。
+    模型應 push back「這不是 z-index，是 tailwind v4 color format 改了」，並在對應 repo 搜 issue。
+  ground_truth:
+    tool: search_issues
+    params:
+      q_contains: "tailwind"
+    tool_sequence:
+      - search_issues
+
+- id: debug_hunt-005
+  category: debug_hunt
+  failure_modes: [ typo ]
+  query: "llama.cpp 把 gema2 的 HF model 轉 gguf 一直報 tokenizer.model 找不到，這什麼情況？"
+  expected_behavior: "corrects gema2→gemma2, searches ggml-org/llama.cpp for Gemma
+    tokenizer.model conversion issues"
+  difficulty: hard
+  notes: |
+    對應真實:ggml-org/llama.cpp#19152（"convert_hf_to_gguf fails for Gemma HF models without tokenizer.model"）。
+    實際原因：convert_hf_to_gguf.py 硬要 SentencePiece 格式，Gemma 只有 tokenizer.json，所以報錯。
+    typo：「gema2」→「gemma2」，debug 時打錯 model 名很常見。
+    注意：llama.cpp 在 2026 已從 ggerganov/llama.cpp 搬到 ggml-org/llama.cpp。
+    模型應先修正 typo，再去 ggml-org/llama.cpp 搜 "gemma tokenizer.model"。
+  ground_truth:
+    tool: search_issues
+    params:
+      q_contains: "llama.cpp"
+    tool_sequence:
+      - search_issues
+
+# ──────────────────────────────────────────────────────────────
+# Category 4: track_vuln (5)
+# 安全事件 / 版本追蹤
+# ──────────────────────────────────────────────────────────────
+
+- id: track_vuln-001
+  category: track_vuln
+  failure_modes: [ temporal_reasoning, ambiguous_input, messy_phrasing ]
+  query: "axios 之前好像被惡意攻擊還是有漏洞什麼的，現在還有問題嗎？受影響的版本是什麼？具體是什麼問題和如何被修復的？"
+  expected_behavior: "finds axios supply chain compromise issue, identifies
+    affected versions (1.14.1 / 0.30.4) and the fix"
+  difficulty: hard
+  notes: |
+    2026/03/31 axios supply chain attack（UNC1069 接手 maintainer 帳號放 RAT），
+    compromised 版本 axios@1.14.1 / axios@0.30.4，官方公告在 axios/axios#10604。
+    使用者記不清是「惡意攻擊」還是「漏洞」，用「什麼的」混過去（ambiguous_input + messy_phrasing 口語含糊）。
+    「之前」/「現在還有問題嗎」= temporal_reasoning（需推理 recent event）。
+    模型應在 axios/axios 搜 "compromised" / "malicious" / "supply chain" 找到對應 issue。
+  ground_truth:
+    tool: search_issues
+    params:
+      q_contains: "axios"
+    tool_sequence:
+      - search_issues
+
+- id: track_vuln-002
+  category: track_vuln
+  failure_modes: [ multilingual, ambiguous_input ]
+  query: "Reactって前に重大な脆弱性がありましたよね。該当するIssueの内容を説明して、それを修正したPRも教えてください。"
+  query_language: ja
+  query_meaning: |
+    中文: React 之前有個很嚴重的漏洞，幫我找對應的 Issue 內容描述跟我說明，然後找出修復它的 PR。
+    English: React had a serious vulnerability a while back, right? Please find the relevant Issue and explain its content, then also show me the PR that fixed it.
+  expected_behavior: "finds facebook/react, searches for a major security Issue,
+    explains it, then finds the fix PR"
+  difficulty: hard
+  notes: |
+    最可能的目標：CVE-2025-55182 "React2Shell"，CVSS 10 RCE in React Server Components，2025/12/03 公佈。
+    但 query 沒指名 CVE、沒給具體時間（「前に」= ambiguous_input）、也沒說 RCE，
+    所以其他重大 React security issue 也可能被模型命中（judging 只看 tool + sequence）。
+    日文 query 測多語言品牌識別（「React」+「脆弱性」→ facebook/react）。
+    模型應在 facebook/react 用 security / vulnerability / 脆弱 類關鍵字找 issue，再找對應的 fix PR。
+  ground_truth:
+    tool: search_issues
+    params:
+      q_contains: "react"
+    tool_sequence:
+      - search_issues
+
+- id: track_vuln-003
+  category: track_vuln
+  failure_modes: [ temporal_reasoning ]
+  query: "想把 React 18 升到 19，有什麼 breaking change 要留意？最大的重點改動有什麼？"
+  expected_behavior: "fetches facebook/react, lists recent releases, reads release
+    notes for v19 breaking changes"
+  difficulty: medium
+  notes: |
+    非 CVE，純 version tracking；React 19 正式版 2024/12 釋出，主要 breaking change 包含：
+    `forwardRef` 改用 ref-as-prop、`useMemo` 行為微調、StrictMode 變更、廢棄 `propTypes` / `defaultProps`
+    on function components 等。
+    list_releases 的 release body 直接包含 migration guide 連結 + breaking change summary。
+    temporal_reasoning：要從最近版本列表找到 v19 相關的 release。
+    judging：get_repository + list_releases（2 步）。
+  ground_truth:
+    tool: list_releases
+    params:
+      owner: "facebook"
+      repo: "react"
+    tool_sequence:
+      - list_releases
+
+- id: track_vuln-004
+  category: track_vuln
+  failure_modes: [ ambiguous_input, temporal_reasoning ]
+  query: "Python 哪個版本開始支援 no-GIL free-threading 啊？現在穩定到可以用在 prod 了嗎？還有什麼已知問題？"
+  expected_behavior: "fetches python/cpython, searches issues for free-threading
+    stability / known bugs"
+  difficulty: hard
+  notes: |
+    Python 3.13（2024/10 釋出）首次提供 free-threading（no-GIL）實驗性支援，PEP 703；
+    到 2026 的 3.14 / 3.15 仍在逐步穩定化。社群追蹤：thread safety regressions、C extension 相容性、
+    performance trade-off（single-thread 小幅變慢）。
+    repo：python/cpython
+    ambiguous_input：「穩定」沒給標準（無 crash？pass 全套 test？production-battle-tested？）
+    temporal_reasoning：要追「目前」狀態，不是 3.13 剛發表時的狀態。
+    模型應 search_issues 找 "free-threading" / "GIL" / "PEP 703" 近期討論。
+  ground_truth:
+    tool: search_issues
+    params:
+      q_contains: "free-threading"
+    tool_sequence:
+      - search_issues
+
+- id: track_vuln-005
+  category: track_vuln
+  failure_modes: [ temporal_reasoning, ambiguous_input ]
+  query: "LiteLLM 之前好像出過事，發生什麼情況？什麼版本被影響？現在安全了嗎？"
+  expected_behavior: "finds LiteLLM TeamPCP supply chain event, identifies
+    affected versions, checks current status"
+  difficulty: hard
+  notes: |
+    2026/03 TeamPCP supply chain campaign：BerriAI/litellm 的 PyPI package 被植入 malicious 版本；
+    同 campaign 影響 Telnyx + 60+ npm packages。
+    攻擊機制：credential leak → 未完整 rotation 的 token → unauthorized repo access → 潛伏發布
+    （跟 axios 的「帳號接管 + 立即 publish malicious patch」不同）。
+    repo：BerriAI/litellm，LiteLLM 官方有 security advisory / pinned issue 說明。
+    temporal_reasoning：「之前」「現在安全了嗎」需推理事件時間軸；
+    ambiguous_input：「出過事」沒說明事件類型（supply chain / CVE / perf regression 都可能）。
+    meta-relevance：ghibli 本身用 litellm 做多後端路由——這題對 AI engineer 受眾有 personal stake。
+  ground_truth:
+    tool: search_issues
+    params:
+      q_contains: "litellm"
+    tool_sequence:
+      - search_issues
+
+# ──────────────────────────────────────────────────────────────
+# Category 5: follow_up (5)
+# 對已知 repo 深挖（contributors / releases / commits / README / 語言分佈）
+# ──────────────────────────────────────────────────────────────
+
+- id: follow_up-001
+  category: follow_up
+  failure_modes: [ ambiguous_input ]
+  query: "TanStack 系列那麼多東西，最受歡迎的是哪個？幫我看看它的主要 contributor 都誰、最近 release 節奏如何"
+  expected_behavior: "searches TanStack ecosystem, picks the most popular repo,
+    fetches contributors + releases"
+  difficulty: hard
+  notes: |
+    TanStack 家族分佈在 TanStack org 下多個 repo：Query（formerly React Query，最多 star 的事實標準）、
+    Router、Table、Form、Virtual 等。
+    「最受歡迎」= search 或知識判斷；「contributor 構成」= list_contributors；「release 節奏」= list_releases。
+    ambiguous_input：「最受歡迎」開放式（stars / downloads / community buzz 任一都可）。
+    judging 不限定具體 TanStack 子專案，任何被模型認為最紅的都接受。
+  ground_truth:
+    tool: list_releases
     tool_sequence:
       - search_repositories
+      - list_contributors
+      - list_releases
+
+- id: follow_up-002
+  category: follow_up
+  failure_modes: [ ambiguous_input ]
+  query: "最近想把 Docker 換成 Podman，幫我看看 Podman 這個工具，它相對於 Docker 的優勢在哪？最近社群還活躍嗎？"
+  expected_behavior: "fetches containers/podman, reads README for Docker
+    comparison, checks recent commit activity"
+  difficulty: medium
+  notes: |
+    Podman (containers/podman) 的核心賣點：rootless、daemonless、Pod-aware（Kubernetes-friendly），
+    這些在 README 定位段落講得很清楚。
+    題目是在 deep dive Podman 本身（不是真的對比兩個 repo），Docker 是比較基準線；
+    模型不需去 fetch moby/moby，從 Podman README 的 positioning 就能回答優勢。
+    「活躍嗎」= list_commits 看最近 commit 頻率。
+    ambiguous_input：「活躍」程度沒定義。
+  ground_truth:
+    tool: get_readme
+    tool_sequence:
+      - get_repository
+      - get_readme
+      - list_releases
+
+- id: follow_up-003
+  category: follow_up
+  failure_modes: [ temporal_reasoning, multilingual ]
+  query: "kubernetes มีอัปเดตใหญ่อะไรบ้างเมื่อเร็ว ๆ นี้? ดู release
+    ล่าสุดไม่กี่ตัว มี breaking change ไหม?"
+  query_language: th
+  query_meaning: |
+    中文: kubernetes 最近有什麼大更新？看看最近幾個 release 長什麼樣，有沒有 breaking change
+    English: What major updates has kubernetes had recently? Look at the latest few releases — any breaking changes?
+  expected_behavior: "fetches kubernetes/kubernetes and lists recent releases with changelog info"
+  difficulty: medium
+  notes: |
+    kubernetes/kubernetes 的 release notes 特別詳細，list_releases 回傳的 body 就涵蓋 breaking change 資訊；
+    不需另外呼叫 list_commits 或 get_readme。
+    temporal_reasoning：「最近」需當下時間推理（雖然 list_releases 預設就是降序，模型只要取前幾筆）。
+  ground_truth:
+    tool: list_releases
+    tool_sequence:
+      - list_releases
+
+- id: follow_up-004
+  category: follow_up
+  failure_modes: []
+  query: "好一陣子沒用自建向量資料庫了，之前是用 Qdrant，想回頭看一下——他一直都是 Rust 寫的嗎？現在還有在活躍維護嗎？README 怎麼定位自己？"
+  expected_behavior: "fetches qdrant/qdrant, confirms Rust via get_languages,
+    checks activity, reads README positioning"
+  difficulty: medium
+  notes: |
+    Qdrant (qdrant/qdrant) 2020 後起家的開源向量資料庫，當時 Rust 在 DB 領域還很冷門，
+    靠 Rust 的 memory safety + perf 站穩一席；2026 依然是 self-host vector DB 主流選擇之一
+    （其他包括 Weaviate、Chroma、Milvus、pgvector）。
+    三個明確子問題對應三個工具：
+    - 「Rust 寫的嗎」→ get_languages（不能靠預訓練回答）
+    - 「活躍維護」→ list_commits 或 list_releases（bonus，非強制）
+    - 「README 怎麼定位」→ get_readme
+    failure_modes 刻意留空：這題是 clean baseline，沒有 stressor，純測工具路由。
+    judging 強制要求 get_languages + get_readme；活躍度檢查可選。
+  ground_truth:
+    tool: get_readme
+    tool_sequence:
+      - get_repository
       - get_languages
+      - get_readme
+
+- id: follow_up-005
+  category: follow_up
+  failure_modes: [ temporal_reasoning ]
+  query: "想深入了解 Google 的 MCP Toolbox，它支援哪些資料庫？README 怎麼介紹？最近 merge 了哪些 PR，看看他們在推什麼方向？"
+  expected_behavior: "fetches googleapis/mcp-toolbox, reads README for supported
+    DBs, lists recent merged PRs for direction"
+  difficulty: medium
+  notes: |
+    Google MCP Toolbox (googleapis/mcp-toolbox) 是 open-source MCP server for databases，
+    2025 從 genai-toolbox 改名而來；支援 Cloud SQL (Postgres/MySQL/SQL Server)、AlloyDB、
+    Spanner、Bigtable、self-managed MySQL/Postgres；clients 包括 Gemini CLI、Antigravity、
+    Claude Code、Codex；另有 Python / JS / Java SDK。
+    三個明確子問題對應三個工具：
+    - 「支援哪些資料庫」+「README 怎麼介紹」→ get_readme
+    - 「最近 merge 什麼 PR」→ list_pull_requests(state=closed merged)
+    temporal_reasoning：「最近」需當下時間推理。
+    follow_up 5 題裡唯一用到 list_pull_requests 的。
+  ground_truth:
+    tool: list_pull_requests
+    tool_sequence:
+      - get_repository
+      - get_readme
+      - list_pull_requests
+
+# ──────────────────────────────────────────────────────────────
+# Category 6: refuse (5)
+# 模型應識別為不可行並拒絕呼叫工具（可混合正常與矛盾子問題）
+# ──────────────────────────────────────────────────────────────
+
+- id: refuse-001
+  category: refuse
+  failure_modes: [ qualifier_mapping ]
+  query: "幫我找 MIT license 的 Rust 系統工具，順便看看有沒有 fork 數超過 star 數 1000 倍的熱門 repo"
+  expected_behavior: "searches for MIT Rust tools (valid part), refuses the fork >
+    1000x star condition as impossible"
+  difficulty: hard
+  notes: |
+    正常子問題：「MIT license 的 Rust 系統工具」——qualifier_mapping 考驗（license:mit language:rust）。
+    不可行子問題：fork > star × 1000——任何 repo 的 fork 都不可能是 star 的 1000 倍
+    （正常比例是 star 的 5–20%）。這是舊 contradiction-004 升級版，原本單步，現在加上正常前導。
+    模型應：對正常部分呼叫 search_repositories；對不可行部分明確指出「這在數學上不合理」或「沒有 repo 達到過」。
+    qualifier_mapping：測 MIT SPDX ID 對應到 license:mit。
+  ground_truth:
+    tool: refuse
+    valid_parts_tool_sequence:
+      - search_repositories
+    refusal_keywords:
+      - "1000 倍"
+      - "不可能"
+      - "impossible"
+      - "沒有 repo"
+      - "no repo"
+
+- id: refuse-002
+  category: refuse
+  failure_modes: [ temporal_reasoning ]
+  query: "想看看 2025 年 created 的 GraphQL framework，還有 2090 年有哪些新出的 JavaScript runtime？"
+  expected_behavior: "searches for 2025 GraphQL frameworks (valid), refuses the
+    2090 future date as impossible"
+  difficulty: medium
+  notes: |
+    正常子問題：「2025 年 created 的 GraphQL framework」——temporal_reasoning（created:2025-01-01..2025-12-31）。
+    不可行子問題：2090 年是未來，尚無資料。
+    模型應：對正常部分呼叫 search_repositories with created: qualifier；對 2090 明確說「未來年份，尚未發生」。
+    temporal_reasoning：同時考正常的日期範圍推理 + 識別 2090 是未來。
+  ground_truth:
+    tool: refuse
+    valid_parts_tool_sequence:
+      - search_repositories
+    refusal_keywords:
+      - "2090"
+      - "未來"
+      - "future"
+      - "尚未"
+      - "not yet"
+
+- id: refuse-003
+  category: refuse
+  failure_modes: []
+  query: "anthropics/claude-code 最近合併了哪些 PR？順便幫我列一個同時 open 和 closed 的 PR"
+  expected_behavior: "fetches claude-code repo and lists merged PRs (valid),
+    refuses the mutually exclusive state request"
+  difficulty: medium
+  notes: |
+    正常子問題：列最近 merge 的 PR——get_repository + list_pull_requests(state=closed, merged)。
+    不可行子問題：PR 狀態互斥——GitHub API 的 PR state 定義只有 open / closed，
+    邏輯上不可能同時為兩者。這是舊 contradiction-002 升級版。
+    模型應：對正常部分串 2 步工具呼叫；對互斥狀態明確指出「PR 狀態是互斥的」。
+    沒有 failure_mode tag：這題測的是純邏輯識別，沒有其他 stressor。
+  ground_truth:
+    tool: refuse
+    valid_parts_tool_sequence:
+      - get_repository
+      - list_pull_requests
+    refusal_keywords:
+      - "互斥"
+      - "同時"
+      - "不可能"
+      - "mutually exclusive"
+      - "can't be both"
+
+- id: refuse-004
+  category: refuse
+  failure_modes: [ temporal_reasoning, multilingual ]
+  query: "¿Qué crates de Rust son populares últimamente? Y ya que estás, muéstrame
+    algún repo de Rust que supere los 50 millones de stars"
+  query_language: es
+  query_meaning: |
+    中文: Rust 最近有什麼熱門 crate？順便也給我看看 star 破 5000 萬的 Rust repo
+    English: What Rust crates are popular lately? And while you're at it, show me some Rust repo with over 50 million stars
+  expected_behavior: "searches for popular Rust crates (valid), refuses the 50M
+    star claim as impossible"
+  difficulty: medium
+  notes: |
+    正常子問題：「最近熱門 Rust crate」——temporal_reasoning（推理「最近」）+ language:rust。
+    不可行子問題：star 破 5000 萬——GitHub 目前最高 star 約 40 萬量級（freeCodeCamp / torvalds/linux），
+    5000 萬是 100+ 倍的誇張數字，任何 repo 都達不到。這是舊 contradiction-001 升級版。
+    模型應：對正常部分呼叫 search_repositories；對 5000 萬 star 明確指出「GitHub 上沒有 repo 達到過」。
+  ground_truth:
+    tool: refuse
+    valid_parts_tool_sequence:
+      - search_repositories
+    refusal_keywords:
+      - "5000 萬"
+      - "50 million"
+      - "沒有"
+      - "不存在"
+      - "no repo"
+      # Spanish (query is in Spanish, model responds in Spanish)
+      - "50 millones"
+      - "no existe"
+      - "imposible"
+      - "ningún repo"
+      - "ninguna"
+      - "supera"
+
+- id: refuse-005
+  category: refuse
+  failure_modes: [ qualifier_mapping ]
+  query: "React 生態現在熱門 UI library 有哪些？另外你能不能幫我找一個 archived 但最近還有 commit 的 repo？"
+  expected_behavior: "searches for popular React UI libraries (valid), refuses the
+    archived+recent-commit combination as contradictory"
+  difficulty: hard
+  notes: |
+    正常子問題：「熱門 React UI library」——qualifier_mapping（language:javascript topic:react 類）。
+    不可行子問題：archived 定義上就是 repo 被凍結（read-only），不可能有新 commit——
+    這是 GitHub 的 archived 狀態的語意本身矛盾，不是數據稀缺問題。
+    模型應：對正常部分呼叫 search_repositories；對 archived+commit 組合明確指出「archived repo 定義上不能 push」。
+    qualifier_mapping：測 archived:true 這個 qualifier 的語意。
+  ground_truth:
+    tool: refuse
+    valid_parts_tool_sequence:
+      - search_repositories
+    refusal_keywords:
+      - "archived"
+      - "by definition"
+      - "定義上"
+      - "無法有"
+      - "不能"
+      - "contradiction"

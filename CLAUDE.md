@@ -23,7 +23,7 @@
 - **Project-local 狀態**：`<cwd>/.ghibli/` 同時放 `sessions.db`（SQLite）與 `last_model`（純文字一行）；`.gitignore` 已包含 `.ghibli/`。每個 repo 一套獨立狀態，跨平台不依賴 home directory 結構
 - **套件管理**：`uv`，Python 3.12，src layout（`src/ghibli/`）
 
-## Phase 1 完成狀態（2026-04-22）
+## Phase 1 完成狀態
 
 所有 6 個 Spectra change 已全部 archive：
 1. ✅ `project-scaffold` — 專案骨架、pyproject.toml、exceptions
@@ -32,6 +32,45 @@
 4. ✅ `cli-entry-point` — Typer CLI + 對話 loop
 5. ✅ `github-tools` — Gemini Function Calling agent + 6 tools
 6. ✅ `output-formatter` — Rich Markdown / JSON 輸出，session history 串接
+
+## Phase 2 Eval 架構
+
+### Query 設計
+- **30 題 = 6 情境 × 5 題**：`discover` / `compare` / `debug_hunt` / `track_vuln` / `follow_up` / `refuse`
+- Category 基於「使用者在做什麼」而非「測試哪個 failure mode」——圍繞真實 AI-dev 場景（OpenClaw、axios 供應鏈事件、React CVE、LiteLLM compromise、Qdrant deep dive 等）
+- Multi-label `failure_modes` tag（7 個）用於 cross-category 失敗模式分析：`multilingual` / `ambiguous_input` / `messy_phrasing` / `outdated_assumption` / `typo` / `qualifier_mapping` / `temporal_reasoning`
+
+### Judge 邏輯（`evals/judge.py`）
+- **Multiset subset**：檢查每個 required tool 被 call 次數 ≥ 要求次數，**順序不管**。理由：data-flow 自然強制順序（search 必在 get_repository 前因為後者需前者 owner/repo），硬要求 sequence 是 artificial discipline
+- **Refuse scenario**：`tool: refuse` sentinel + `valid_parts_tool_sequence`（正常子問題該 call 的工具）+ `refusal_keywords`（response 必須包含）——測模型是否能「正常部分答，不可行部分拒」
+- **Pass 條件**：normal = tool_match AND sequence_match；refuse = sequence_match AND flagged_refusal
+
+### Ground Truth 設計原則
+- 放寬 `get_repository` 當它 functionally redundant：例如 `search_issues q='repo:x/y keyword'` 已 scope 到特定 repo，不需 get_repository anchor
+- 保留 `get_repository` 當它真的需要：compare N-way、follow_up deep-dive、list_releases 前的版本 anchor
+
+### Prompt 設計（`src/ghibli/prompt.py`）
+- **Scope reframing**：ghibli 是「GitHub-powered technical research assistant」——回答技術問題都 route 到 GitHub 資料，不限「GitHub 實體查詢」
+- **Query-pattern → tool mapping**：X vs Y → get_repository × N；升級 → list_releases；「有人遇過嗎」→ search_issues；活躍度 → list_commits / list_releases 等
+- **Named repo first**：指名 repo 必先 get_repository anchor（防 Gemini Flash 跳過步驟的常見失誤）
+- **Partial refusal**：混合 valid + impossible 的 query 要答正常部分 + 拒絕不可行部分，first-principles reasoning 判斷矛盾（不列具體 impossibility 枚舉，防 eval leakage）
+- **嚴禁鏡射 eval 資料集**：prompt 不包含 eval query 的具體 repo / keyword / impossibility 枚舉。歷史教訓詳見 `memory/prompt_eval_leakage_rule.md`
+
+### Harness（`evals/models.py` / `evals/run_evals.py`）
+- **Retry 覆蓋**：`RateLimitError`（解析 retry-after） / `ServiceUnavailableError` / `Timeout` / `ConnectionError` 都有 exponential backoff（最多 5 次）
+- **Verbose tool output**：每次 tool call 印 `→ tool(args)` + `← result preview`，eval 看起來像 CLI
+- **tool_calls_detail 存入 result**：每 query 記錄每次 call 的 tool name + args + result preview，可驗證 grounding（回答是否基於真實搜尋結果）
+
+### Model registry（`_MODEL_CONFIG` in `evals/models.py`）
+- **最終選的 3 個**：`gemini-vertex`（Flash, Vertex AI）/ `gemma4`（open-weight via Gemini API）/ `gpt51`（GPT-5.1，reasoning=none default）
+- **試驗過的**：`gpt5-mini`（reasoning=medium default 太慢，90+ min/30 題）、`gpt4o`（73% 但不在最終）、`gemini-vertex-pro`（43% 反而比 Flash 差）、`gemini`（API key 路徑，遇 503 crash）
+- **Credentials**：Gemini Vertex 用 ADC + `GOOGLE_CLOUD_PROJECT`；Gemma4 用 `GEMINI_API_KEY`（free tier 有 RPM 無 TPM 限制）；OpenAI 系用 `OPENAI_API_KEY`
+
+### Results 組織
+- `evals/results/{model}.json` — 最終 3 model 的 per-model run history（append 式，最新 run 在最後）
+- `evals/results-archive/` — 試驗過但不是最終的 model 結果（gpt4o、gemini-vertex-pro、gemini 等）
+- `evals/results-legacy*.json` — pre-restructure 舊 eval 架構的歷史資料
+- `evals/compare_models.py` 從 `evals/results/*.json` 聚合，不讀 archive
 
 ---
 

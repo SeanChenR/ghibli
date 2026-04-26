@@ -6,7 +6,7 @@ from __future__ import annotations
 def _make_run(model: str, accuracy: float, results: list[dict] | None = None) -> dict:
     rows = results or []
     return {
-        "run_id": "2026-04-22T00:00:00+00:00",
+        "run_id": "2026-04-26T00:00:00+00:00",
         "model": model,
         "total": len(rows),
         "passed": sum(1 for r in rows if r.get("status") == "pass"),
@@ -33,36 +33,39 @@ def _make_result(category: str, pass_: bool) -> dict:
 
 # Three runs with per-category results so category columns can be computed
 _GEMINI_RESULTS = [
-    _make_result("qualifier", True),
-    _make_result("temporal", True),
-    _make_result("typo", True),
-    _make_result("contradiction", False),
-    _make_result("multi_step", True),
+    _make_result("discover", True),
+    _make_result("compare", True),
+    _make_result("debug_hunt", True),
+    _make_result("track_vuln", False),
+    _make_result("follow_up", True),
+    _make_result("refuse", True),
 ]
 _GPT4O_RESULTS = [
-    _make_result("qualifier", True),
-    _make_result("temporal", False),
-    _make_result("typo", True),
-    _make_result("contradiction", True),
-    _make_result("multi_step", True),
+    _make_result("discover", True),
+    _make_result("compare", False),
+    _make_result("debug_hunt", True),
+    _make_result("track_vuln", True),
+    _make_result("follow_up", True),
+    _make_result("refuse", True),
 ]
 _LLAMA3_RESULTS = [
-    _make_result("qualifier", False),
-    _make_result("temporal", True),
-    _make_result("typo", False),
-    _make_result("contradiction", True),
-    _make_result("multi_step", True),
+    _make_result("discover", False),
+    _make_result("compare", True),
+    _make_result("debug_hunt", False),
+    _make_result("track_vuln", True),
+    _make_result("follow_up", True),
+    _make_result("refuse", True),
 ]
 
 THREE_MODEL_RUNS = [
     _make_run("gemini", 0.750, _GEMINI_RESULTS),
-    _make_run("gpt4o-mini", 0.750, _GPT4O_RESULTS),
+    _make_run("gpt5-mini", 0.750, _GPT4O_RESULTS),
     _make_run("llama3", 0.750, _LLAMA3_RESULTS),
 ]
 
 TWO_MODEL_RUNS = [
     _make_run("gemini", 0.900, _GEMINI_RESULTS),
-    _make_run("gpt4o-mini", 0.833, _GPT4O_RESULTS),
+    _make_run("gpt5-mini", 0.833, _GPT4O_RESULTS),
 ]
 
 
@@ -78,7 +81,7 @@ class TestGenerateReport:
         output = self._call(THREE_MODEL_RUNS)
         model_rows = [
             line for line in output.splitlines()
-            if any(m in line for m in ("gemini", "gpt4o-mini", "llama3"))
+            if any(m in line for m in ("gemini", "gpt5-mini", "llama3"))
         ]
         assert len(model_rows) == 3, f"Expected 3 data rows, got {len(model_rows)}:\n{output}"
 
@@ -86,7 +89,7 @@ class TestGenerateReport:
         """Accuracy must appear as a rounded 1-decimal percentage string."""
         runs = [
             _make_run("gemini", 0.9),
-            _make_run("gpt4o-mini", 0.8333),
+            _make_run("gpt5-mini", 0.8333),
         ]
         output = self._call(runs)
         assert "90.0%" in output, f"Expected '90.0%' in output:\n{output}"
@@ -97,7 +100,7 @@ class TestGenerateReport:
         output = self._call(TWO_MODEL_RUNS)
         model_rows = [
             line for line in output.splitlines()
-            if any(m in line for m in ("gemini", "gpt4o-mini", "llama3"))
+            if any(m in line for m in ("gemini", "gpt5-mini", "llama3"))
         ]
         assert len(model_rows) == 2, f"Expected 2 data rows, got {len(model_rows)}:\n{output}"
         assert "llama3" not in output, "llama3 should not appear when its run is missing"

@@ -39,14 +39,24 @@ def _make_app():
     return app, CliRunner()
 
 
+_FAKE_TOOL_DETAIL = [
+    {"tool": "search_repositories", "args": {"q": "test"}, "result_preview": "..."}
+]
+
+
 def test_run_single_query_pass():
     from evals.run_evals import run_query
 
-    with patch("evals.run_evals.chat_with_model", return_value=("Found repos", ["search_repositories"])):
+    with patch(
+        "evals.run_evals.chat_with_model",
+        return_value=("Found repos", _FAKE_TOOL_DETAIL),
+    ):
         result = run_query(SAMPLE_ENTRY, session_id="test-session")
 
     assert result["status"] == "pass"
     assert result["response_preview"] == "Found repos"
+    assert result["tools_called"] == ["search_repositories"]
+    assert result["tool_calls_detail"] == _FAKE_TOOL_DETAIL
 
 
 def test_run_single_query_error():
@@ -106,14 +116,14 @@ def test_category_filter():
 
 
 def test_run_query_result_includes_judge_result():
-    """run_query with model_name='gpt4o-mini' must return judge_result with pass_."""
+    """run_query with model_name='gpt5-mini' must return judge_result with pass_."""
     from evals.run_evals import run_query
 
     with patch(
         "evals.run_evals.chat_with_model",
-        return_value=("Found repos", ["search_repositories"]),
+        return_value=("Found repos", _FAKE_TOOL_DETAIL),
     ):
-        result = run_query(SAMPLE_ENTRY, session_id="s1", model_name="gpt4o-mini")
+        result = run_query(SAMPLE_ENTRY, session_id="s1", model_name="gpt5-mini")
 
     assert "judge_result" in result, "result must contain 'judge_result'"
     assert "pass_" in result["judge_result"], "judge_result must contain 'pass_'"
