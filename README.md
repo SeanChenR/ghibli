@@ -75,10 +75,17 @@
 git clone https://github.com/SeanChenR/ghibli.git
 cd ghibli
 uv sync
+
+# Optional
+cp .env.example .env
+
 uv run ghibli         # 第一次啟動會出現 model picker，引導填入 API key
 ```
 
-沒有任何 credential 時 picker 會帶你過 onboarding（prompt 你貼 API key，寫到專案目錄的 `.env`），不用事先準備設定檔。
+兩種設定 credential 的方式，擇一即可：
+
+- **A. 用 picker（推薦給第一次跑的人）**：直接 `uv run ghibli`，沒任何 credential 時 picker 會帶你過 onboarding（選 provider → prompt 貼 API key → 寫到專案目錄的 `.env`），不用事先準備設定檔。
+- **B. 自己編 `.env`**：先 `cp .env.example .env`，把對應的 key 填進去再跑 `uv run ghibli`。適合已經知道要用哪個 provider、或想一次設好多個後端切換的情況。
 
 如果要跑 eval：
 
