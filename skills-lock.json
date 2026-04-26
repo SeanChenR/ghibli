@@ -11,6 +11,11 @@
       "sourceType": "github",
       "computedHash": "f50e4b9a3fe3c2c55d0f8141b933e0b9a44c1fab38c002fd4d90d52850d71f04"
     },
+    "deepeval": {
+      "source": "sammcj/agentic-coding",
+      "sourceType": "github",
+      "computedHash": "5bbadd7e76a3814197608f2a88c7797190aec5b62ddcf9fe8224abf5dd35a284"
+    },
     "eval-harness": {
       "source": "affaan-m/everything-claude-code",
       "sourceType": "github",

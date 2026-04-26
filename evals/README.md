@@ -12,11 +12,19 @@ evals/
 ├── judge.py                    # Multiset 判分 + refuse scenario 判分
 ├── compare_models.py           # 從 per-model 結果產 Markdown 比較表
 ├── rejudge.py                  # 不重跑 API，用 stored result 套新 judge / 新 GT 快速重判
+├── deepeval_judge.py           # 語意級 judge（LLM-as-judge，4 個 metric）
+├── synthesizer_explore.py      # 一次性實驗：Synthesizer 自動生題對照
 ├── tool_schema.py              # Re-export ghibli 的 tool schemas
-└── results/
-    ├── gemini-vertex.json      # 最終 3 個模型的 per-model 結果
-    ├── gemma4.json
-    └── gpt51.json
+├── results/                    # 結構級判分結果（每 model 一檔）
+│   ├── gemini-vertex.json
+│   ├── gemma4.json
+│   └── gpt51.json
+├── results-deepeval/           # 語意級判分結果（每 model 一檔）
+│   ├── gemini-vertex.json
+│   ├── gemma4.json
+│   └── gpt51.json
+└── synthesized-queries/        # Synthesizer 產出 + findings（JSON gitignored）
+    └── findings.md
 ```
 
 ## Query Schema（`queries.yaml`）
@@ -196,6 +204,101 @@ uv run python -m evals.rejudge --detail     # 顯示失敗 query 細節
 **用途**：改了 `judge.py` 或 `queries.yaml` 的 ground truth，不想重跑 API（燒錢 + 耗時）時——讀 stored `tools_called` + `response_full`，用**當前的**judge.py + queries.yaml 重判分。秒級完成。
 
 這是 eval design 的關鍵 enabler：快速 iterate GT 跟 judge 邏輯，不被 API 成本綁住。
+
+## Semantic Judge Layer（`deepeval_judge.py`）
+
+結構級判分（multiset subset）只查「該 call 的工具有沒有 call」，不查「答案到底對不對」。Semantic judge 是疊在上面的第二層判分，用 LLM-as-judge 看 stored response 的內容品質，補結構級的盲點。
+
+### 用法
+
+```bash
+uv run python -m evals.deepeval_judge --model gemini-vertex
+uv run python -m evals.deepeval_judge --model gemma4
+uv run python -m evals.deepeval_judge --model gpt51
+```
+
+讀 `evals/results/{model}.json` 的 stored response 跟 tool_calls_detail，跑 4 個 metric，輸出到 `evals/results-deepeval/{model}.json`。**不重打 GitHub API、不重打 under-test model**——成本只在 judge LLM 端。
+
+如果遇到 timeout（少數 query 的 judge 回應過慢），加 env var：
+
+```bash
+DEEPEVAL_PER_ATTEMPT_TIMEOUT_SECONDS_OVERRIDE=300 uv run python -m evals.deepeval_judge --model <name>
+```
+
+### 4 個 Metric
+
+| Metric | 在判什麼 | Threshold |
+|---|---|---|
+| `AnswerRelevancyMetric` | 答案有沒有真的回到使用者問的問題 | 0.7 |
+| `FaithfulnessMetric` | 答案是不是 grounded 在 tool 拿到的資料 | 0.7 |
+| `HallucinationMetric` | 模型有沒有編造 GitHub 上不存在的 repo / 數字 / 版本 | 0.7 |
+| `GEval("Partial Refusal Quality")` | refuse 類專用——valid 部分有沒有正常答 + 矛盾部分有沒有明確拒絕 | 0.6 |
+
+非 refuse 類 query 的 `partial_refusal` 記錄為 null，reason `"N/A non-refuse"`。
+
+`HallucinationMetric` 收的 `context` 不是 judge LLM 的訓練知識，而是 stored `tool_calls_detail` 的 `result_preview`——這樣 judge 是「模型答的東西在不在 tool 結果裡」，不是「judge 自己記不記得這個 repo」。
+
+### Judge Model
+
+預設 `gemini/gemini-2.5-flash`（透過 `GEMINI_API_KEY`）。透過 env var 覆寫：
+
+```bash
+DEEPEVAL_JUDGE_MODEL=openai/gpt-4o uv run python -m evals.deepeval_judge --model gemma4
+```
+
+**為什麼選 Gemini 2.5 Flash 不選 Anthropic / GPT**：ghibli 沒設 `ANTHROPIC_API_KEY`、`gpt-4o` 跟 `gpt51` 同 provider 有同源偏見；Gemini 2.5 Flash 跟 3 個 under-test model 的版本 / provider / endpoint 都不同（gemini-vertex 跑 3 Flash via Vertex、gemma4 是 open-weight Gemma、gpt51 是 OpenAI），bias 風險可控。
+
+**已知 caveat**：Gemini judge 會被 safety filter 影響，遇到 CVE / vulnerability 內容偶爾回傳 None，判分會被記成 `judge returned no score` 並從 semantic_pass 計算中跳過（不會炸整個 run，因為已開 `ignore_errors=True`）。
+
+### 輸出 schema
+
+```json
+{
+  "judge_model": "gemini/gemini-2.5-flash",
+  "model": "gemini-vertex",
+  "results": [
+    {
+      "query_id": "track_vuln-001",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {"score": 0.85, "passed": true, "reason": "..."},
+        "faithfulness":     {"score": 0.92, "passed": true, "reason": "..."},
+        "hallucination":    {"score": 0.15, "passed": true, "reason": "..."},
+        "partial_refusal":  {"score": null, "passed": null, "reason": "N/A non-refuse"}
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    }
+  ],
+  "summary": {
+    "structural_pass": 29,
+    "semantic_pass":   29,
+    "both_pass":       28,
+    "structural_only":  1,
+    "semantic_only":    1,
+    "both_fail":        0
+  }
+}
+```
+
+`judge_disagreement` 是核心 signal——`structural_pass != semantic_pass` 的 query 才是現有 eval 的真正盲點。
+
+### Async 與快取
+
+預設帶 `AsyncConfig(run_async=True, max_concurrent=10)` 跟 `CacheConfig(use_cache=True, write_cache=True)`：
+
+- 30 題 × 3-4 metric ≈ 90-120 judge call，max_concurrent=10 約 2-5 分鐘跑完
+- 重跑相同 stored response 直接吃 cache（在 `~/.deepeval/.deepeval-cache.json`），秒級完成
+
+## Synthesizer 探索（`synthesizer_explore.py`）
+
+一次性實驗：用 DeepEval `Synthesizer.generate_goldens_from_scratch` 自動生 15 條 query，跟手動 30 題對比 diversity / scope / 適用度。
+
+```bash
+uv run python evals/synthesizer_explore.py
+```
+
+輸出到 `evals/synthesized-queries/<ISO-timestamp>.json`（gitignored），review 結論寫在 `evals/synthesized-queries/findings.md`。**生成的題不進 production validation set**——四個維度評估後不適用，理由見 findings 檔。
 
 ## Ground-Truth 設計原則
 

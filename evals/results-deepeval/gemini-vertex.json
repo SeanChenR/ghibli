@@ -1,0 +1,854 @@
+{
+  "judge_model": "gemini/gemini-2.5-flash",
+  "model": "gemini-vertex",
+  "results": [
+    {
+      "query_id": "compare-001",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant and addresses the input comprehensively without any irrelevant statements. Great job!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because all factual alignments are present and there are no contradictions, indicating the output is fully supported by the context."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "compare-002",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant and addresses the input comprehensively. Great job!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because the actual output is fully aligned with the provided context, with no contradictions found. All information presented in the output is either directly supported by the context or adds non-contradictory details."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "compare-003",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant and addresses the input comprehensively. Great job!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because there are no contradictions and all factual alignments indicate consistency with the provided context."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "compare-004",
+      "structural_pass": false,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant to the input, with no irrelevant statements whatsoever! Excellent work!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because there are no contradictions and numerous factual alignments between the actual output and the provided contexts, indicating no hallucination."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": true
+    },
+    {
+      "query_id": "compare-005",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant and addresses all aspects of the input question without any irrelevant statements. Excellent work!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because all statements in the actual output are factually aligned with the provided context, and there are no contradictions."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "debug_hunt-001",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 0.9047619047619048,
+          "passed": true,
+          "reason": "The score is 0.90 because the output largely addressed the core request regarding the design philosophies and use cases of the frameworks. However, it included some irrelevant details such as source descriptions and GitHub repository links, which prevented it from achieving a perfect score."
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because there are no contradictions between the actual output and the provided contexts, indicating perfect factual alignment."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "debug_hunt-002",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant and addresses all aspects of the input without any irrelevant statements. Excellent job!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because there are no contradictions between the actual output and the context; all information provided in the actual output aligns with the factual evidence."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "debug_hunt-003",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant and addresses the input comprehensively! Great job!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because the actual output is fully aligned with the provided context, with no contradictions found. All information presented in the output is supported by the factual alignments."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "debug_hunt-004",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant and addresses all aspects of the input comprehensively. Excellent work!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because there are no contradictions between the actual output and the provided contexts, and all statements in the output are factually aligned with the context."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "debug_hunt-005",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant to the input! Great job!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because there are no contradictions between the actual output and the provided context. The output's discussion of database migration and foreign key issues does not conflict with the GitHub search results in the context."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "discover-001",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant and directly addresses the input without any irrelevant statements. Great job!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because there are no contradictions between the actual output and the contexts, and all mentioned information is either aligned or not contradicted by the provided context."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "discover-002",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant to the input! Great job!"
+        },
+        "faithfulness": {
+          "score": 0.95,
+          "passed": true,
+          "reason": "The score is 0.95 because the actual output incorrectly implies two releases on '2026-04-23' for 'TanStack/query', whereas the context specifies only one release tagged as 'release-2026-04-23-1827'."
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because there are no contradictions and multiple factual alignments between the actual output and the provided contexts."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "discover-003",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant and addresses all aspects of the input without any irrelevant information. Great job!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because there are no contradictions between the actual output and the context, and all factual alignments indicate consistency."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "discover-004",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 0.9333333333333333,
+          "passed": true,
+          "reason": "The score is 0.93 because the output was largely relevant to the query about popular Claude Code plugins and their reasons for popularity. However, it included some statements describing Claude Code itself and its operational model, which were not directly pertinent to the plugins, thus preventing a higher score."
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.09090909090909091,
+          "passed": true,
+          "reason": "The score is 0.09 because most of the output aligns with the context regarding Claude Code's features and specific repositories, with only one contradiction concerning the scale of its ecosystem."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "discover-005",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 0.8367346938775511,
+          "passed": true,
+          "reason": "The score is 0.84 because most of the output was relevant to Podman's advantages and community activity. However, it was slightly lowered as some statements described the document's content or made recommendations rather than directly addressing the prompt's core questions."
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because all factual statements in the actual output align with the provided context, and there are no contradictions."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "follow_up-001",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant and addresses all aspects of the input without any irrelevant statements. Excellent work!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because there are no contradictions between the actual output and the context, and the output aligns well with the provided information."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "follow_up-002",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 0.6206896551724138,
+          "passed": false,
+          "reason": "The score is 0.62 because a substantial portion of the output contained irrelevant statements, such as descriptions of Qdrant's features, use cases, and service offerings, which did not directly address whether it has always been written in Rust, if it's actively maintained, or how the README positions itself. This prevented a higher score. However, the score is not lower because some relevant information must have been present to partially answer the input's queries."
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because there are no contradictions between the actual output and the provided contexts. All factual alignments indicate that the actual output is consistent with or does not contradict the information in the contexts."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": false,
+      "judge_disagreement": true
+    },
+    {
+      "query_id": "follow_up-003",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00! Fantastic job, the output is completely relevant and hits the mark perfectly."
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because the actual output aligns perfectly with the provided context, correctly identifying multiple projects and their GitHub links without any contradictions."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "follow_up-004",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant and addresses all aspects of the input query. Great job!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.4,
+          "passed": true,
+          "reason": "The score is 0.40 because the output incorrectly references issue #10630 when the context provides details for different issues (#10656, #10776, #10779). Additionally, it falsely claims 'v1.15.2' fixed all known issues, as a fix for #10794 was released after v1.15.2."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "follow_up-005",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant to the input, with no irrelevant statements whatsoever! Great job!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because there are numerous factual alignments between the actual output and the context, and no contradictions were identified."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "refuse-001",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant and addresses all aspects of the input without any irrelevant statements. Fantastic work!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because there are no contradictions and all information in the actual output aligns with the provided context."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "refuse-002",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant and addresses all aspects of the input. Great job!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because there are no contradictions between the actual output and the contexts. All identified projects are correctly aligned, and additional details in the output do not contradict the provided information."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "refuse-003",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant and addresses all aspects of the input without any irrelevant information. Great job!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because the actual output is fully aligned with the provided context, with no contradictions found."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "refuse-004",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant and addresses all aspects of the input query. Great job!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because the actual output is entirely consistent with the provided context, with no contradictions found."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "refuse-005",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 0.8484848484848485,
+          "passed": true,
+          "reason": "The score is 0.85 because while the output likely provided some relevant information regarding MIT-licensed Rust system tools and potentially addressed the fork/star ratio query, it included several irrelevant statements about Deno's design goals and specific features of Ripgrep, Zellij, and Bottom. These extraneous details prevented a higher score, but the presence of relevant content justifies the current score."
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.2857142857142857,
+          "passed": true,
+          "reason": "The score is 0.29 because the output correctly identifies details for tools like 'deno' and 'ripgrep', but hallucinates their presence by listing them despite the context stating a total count of 0 and only including 'scim-v2-rust'."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "track_vuln-001",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant and addresses all aspects of the input! Great job!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because the actual output is fully aligned with the provided context, and there are no contradictions found."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "track_vuln-002",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant to the input, with no irrelevant statements whatsoever! Excellent work!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because the actual output fully aligns with the provided context and contains no contradictions."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "track_vuln-003",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant and addresses all aspects of the input without any irrelevant information. Excellent work!"
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because all factual statements in the actual output are aligned with the provided context, and no contradictions were found."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "track_vuln-004",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly relevant to the input! Great job!"
+        },
+        "faithfulness": {
+          "score": 0.975609756097561,
+          "passed": true,
+          "reason": "The score is 0.98 because the actual output incorrectly stated that the owner of promptfoo is 'openai' instead of 'promptfoo', and provided the wrong owner ID for promptfoo, which should be 137907881, not 14957082."
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because the actual output is entirely consistent with the provided context, with numerous factual alignments and no contradictions."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    },
+    {
+      "query_id": "track_vuln-005",
+      "structural_pass": true,
+      "metrics": {
+        "answer_relevancy": {
+          "score": 0.9545454545454546,
+          "passed": true,
+          "reason": "The score is 0.95 because the output was highly relevant to the input's request for information on a critical React vulnerability, its issue content, and the fixing PR. It is not higher due to a minor irrelevant statement describing a feature of React 18.3.1 related to React 19, which did not directly contribute to explaining the vulnerability or its specific fix."
+        },
+        "faithfulness": {
+          "score": 1.0,
+          "passed": true,
+          "reason": "The score is 1.00 because the output is perfectly faithful to the retrieval context! Great job!"
+        },
+        "hallucination": {
+          "score": 0.0,
+          "passed": true,
+          "reason": "The score is 0.00 because there are no contradictions between the actual output and the provided contexts, indicating full factual alignment."
+        },
+        "partial_refusal": {
+          "score": null,
+          "passed": null,
+          "reason": "N/A non-refuse"
+        }
+      },
+      "semantic_pass": true,
+      "judge_disagreement": false
+    }
+  ],
+  "summary": {
+    "structural_pass": 29,
+    "semantic_pass": 29,
+    "both_pass": 28,
+    "structural_only": 1,
+    "semantic_only": 1,
+    "both_fail": 0
+  }
+}

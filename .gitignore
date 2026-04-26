@@ -29,3 +29,9 @@ openspec/.vector-search.db*
 # Local-only eval artifacts (history / archive / snapshots / legacy).
 # Only evals/results/ (final per-model results) is version controlled.
 evals/results-local/
+
+# Synthesizer 中間產物：生成的 query JSON 不入 git，僅 findings.md 入 git
+evals/synthesized-queries/*.json
+
+# DeepEval cache (judge LLM 結果快取，避免重複計費)
+.deepeval/

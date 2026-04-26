@@ -48,10 +48,18 @@
       - [Phase 5 — Gemini 2.5 Flash → 3 Flash preview](#phase-5--gemini-25-flash--3-flash-preview)
       - [最終達成：完整軌跡](#最終達成完整軌跡)
     - [執行與結果](#執行與結果)
+      - [4 個 metric 的 prompt 跟 threshold](#4-個-metric-的-prompt-跟-threshold)
+      - [跨 Judge 結論（30 題 × 3 model = 90 runs）](#跨-judge-結論30-題--3-model--90-runs)
+      - [結構級 per-category 細項](#結構級-per-category-細項)
     - [Performance Analysis](#performance-analysis)
       - [最終 3 個 model 的初始失敗模式（harden 前）](#最終-3-個-model-的初始失敗模式harden-前)
       - [Harden 後的差異模式](#harden-後的差異模式)
       - [有趣觀察](#有趣觀察)
+    - [跨 Judge Disagreement 細節](#跨-judge-disagreement-細節)
+      - [(a) 結構 PASS、語意 FAIL：模型呼叫對工具但答得不好](#a-結構-pass語意-fail模型呼叫對工具但答得不好)
+      - [(b) 結構 FAIL、語意 PASS：GT 太嚴，模型實際答對了](#b-結構-fail語意-passgt-太嚴模型實際答對了)
+      - [語意級判分的限制](#語意級判分的限制)
+    - [Synthesizer 自動生題的對照實驗](#synthesizer-自動生題的對照實驗)
   - [單元測試 \& 整合測試 ( 基於 Test Driven Development; TDD )](#單元測試--整合測試--基於-test-driven-development-tdd-)
   - [開發指令](#開發指令)
 
@@ -572,21 +580,61 @@ GPT-5.1 / Gemma-4 越線。**Gemini 2.5 Flash 還是過不了**——已經把 p
 ### 執行與結果
 
 ```bash
-uv run python -m evals.run_evals --model gemini-vertex
-uv run python -m evals.run_evals --model gemma4
-uv run python -m evals.run_evals --model gpt51
-uv run python -m evals.compare_models
+uv run python -m evals.run_evals --model gemini-vertex      # 結構級判分
+uv run python -m evals.deepeval_judge --model gemini-vertex # 語意級判分（疊在上面）
+uv run python -m evals.compare_models                        # 跨模型 accuracy 表
 ```
 
-最終結果（6 category × 5 題 × 3 model = 90 runs）：
+ghibli 用**兩層判分疊加**：
+
+- **結構級**（`evals/judge.py`）：看「該叫的工具有沒有叫到」——multiset 比對 tool 序列、deterministic、0 LLM cost。是 ≥85% threshold 的判分主體。
+- **語意級**（`evals/deepeval_judge.py`）：看「答出來的東西到底對不對」——LLM-as-judge 跑 4 個 metric（answer_relevancy / faithfulness / hallucination / partial_refusal），補結構級看不見「答案內容」的盲點。
+
+#### 4 個 metric 的 prompt 跟 threshold
+
+| Metric | Prompt 從哪來 | Threshold | 設值理由 |
+|---|---|---|---|
+| `AnswerRelevancyMetric` | DeepEval 內建 | **0.7** | DeepEval 建議的 production 預設值（保守值） |
+| `FaithfulnessMetric` | DeepEval 內建 | **0.7** | 同上 |
+| `HallucinationMetric` | DeepEval 內建（吃 `tool_calls_detail` 的 `result_preview` 當 ground-truth context，不靠 judge 自己訓練資料） | **0.7** | 同上 |
+| `GEval("Partial Refusal Quality")` | **自寫 criteria** | **0.6** | refuse 類判斷主觀（什麼算「明確拒絕」），給寬一點避免過嚴；但不能太低，不然編造也會被判過 |
+
+**3 個 RAG metric 直接用 DeepEval built-in prompt**——這些是 DeepEval 為通用 LLM 應用調過的 judge prompt，包含 verdict 抽取、reasoning chain、self-consistency 等，自己重寫風險高（會弱化 metric 信號）。我們做的是**選對 metric** + **餵對 context**（特別是 hallucination metric 的 retrieval context 改用 tool 結果而非 query 文字），不重做 prompt。
+
+**`GEval` 的 criteria 自己寫**（位置：`evals/deepeval_judge.py`）——因為「partial refusal 品質」是 ghibli 場景特有，DeepEval 沒對應的 built-in：
+
+```python
+criteria=(
+    "Determine whether the response correctly handled a query mixing "
+    "valid and contradictory sub-questions: the valid part should be "
+    "answered using actual data, while the contradictory part should "
+    "be explicitly refused with a reason — not fabricated or silently ignored."
+)
+```
+
+GEval 拿到這段描述後會自己構造 evaluation steps、判分 rubric，用 chain-of-thought 推理出 0–1 的分數。**Threshold 跟 criteria 都沒做 per-query 調校**——沒有「semantic ground-truth」可以對齊，0.7/0.6 是經驗值不是 tuned value，這是接受 LLM-as-judge 本身有 ~5–10% 變動的取捨。
+
+#### 跨 Judge 結論（30 題 × 3 model = 90 runs）
+
+| Model | **結構級** | **語意級** | Disagreement |
+|---|---|---|---|
+| `gemini-3-flash` | **96.7%** (29/30) | **96.7%** (29/30) | 2 |
+| `gemma-4-26b` | **90.0%** (27/30) | **90.0%** (27/30) | 6 |
+| `gpt-5.1` | **86.7%** (26/30) | **96.7%** (29/30) | 5 |
+
+三個 model 結構級全部過 ≥85% threshold。**Disagreement 是核心 signal**——同題結構 PASS 但語意 FAIL（或反之），總共 13 題揭示了現有 eval 看不到的盲點，具體例子在 [Performance Analysis](#performance-analysis)。
+
+值得一提的是 **gpt-5.1 語意分（96.7%）比結構分（86.7%）高 3 分**——4 題結構倒但語意過，意味著結構級 GT 對 reasoning 強的 model 偏嚴。
+
+#### 結構級 per-category 細項
 
 | Model | Overall | Discover | Compare | Debug Hunt | Track Vuln | Follow Up | Refuse |
 |---|---|---|---|---|---|---|---|
-| **gemini-vertex** | **96.7%** | 100% | 80% | 100% | 100% | 100% | 100% |
-| **gemma4** | **90.0%** | 100% | 60% | 100% | 100% | 100% | 80% |
-| **gpt51** | **86.7%** | 60% | 80% | 100% | 100% | 80% | 100% |
+| `gemini-3-flash` | **96.7%** | 100% | 80% | 100% | 100% | 100% | 100% |
+| `gemma-4-26b` | **90.0%** | 100% | 60% | 100% | 100% | 100% | 80% |
+| `gpt-5.1` | **86.7%** | 60% | 80% | 100% | 100% | 80% | 100% |
 
-三個 model 全部過 ≥85% threshold。Compare 類別是共同瓶頸（見 [仍無法根解的限制 §1](#仍無法根解的限制)）。
+Compare 類別是共同瓶頸（見 [仍無法根解的限制 §1](#仍無法根解的限制)）。
 
 ### Performance Analysis
 
@@ -611,6 +659,49 @@ uv run python -m evals.compare_models
 1. **Gemini 2.5 → 3 Flash 的 26.7%–76.7% → 96.7% 跳躍**：同一個 family 的小版本升級在 tool-use 任務上影響極大。2.5 Flash 在所有 prompt 調整後 ceiling 76.7%，3 Flash preview 直接到 96.7%。差別主要在 thinking 能力——multi-step tool planning 的穩定性是 thinking 能力的直接體現。
 2. **Reasoning effort 的甜蜜點**：GPT-5.1 預設 `reasoning=none` 時 86.7%；試過 `reasoning=low` 沒顯著提升但 latency 翻倍；`reasoning=medium` 會在 30+ 題跑出 90 分鐘等級的累積時間。對「知道怎麼做、只是需要穩定執行」的 tool-use eval，reasoning 不是 free lunch。
 3. **Open-weight 能打到 90%**：Gemma-4-26b 作為 open-weight 模型做到 90%，超過 GPT-5.1 的 86.7%。這證明 2026 年 open-weight 生態（尤其有 thinking 能力的那批）在結構化 tool-use task 上已經可以跟去年閉源模型比較。
+
+### 跨 Judge Disagreement 細節
+
+[執行與結果](#執行與結果) 那裡已經給了結構級 / 語意級 / disagreement 的總分，這裡展開 13 題 disagreement 的具體模式——這才是語意級 judge 真正補進來的洞察。
+
+#### (a) 結構 PASS、語意 FAIL：模型呼叫對工具但答得不好
+
+| Model | Query | 失敗 metric | 觀察 |
+|---|---|---|---|
+| `gemini-vertex` | `follow_up-002` | answer_relevancy 0.62 | 工具都對，但答案塞 Qdrant features 沒回到「always Rust? actively maintained? README positioning?」 |
+| `gemma-4-26b` | `compare-002` | faithfulness | 工具拿到的 data 跟 response 對不上，模型自己加料 |
+| `gemma-4-26b` | `refuse-001` | hallucination | refuse 類但回答時編造 repo |
+| `gpt-5.1` | `debug_hunt-002` | hallucination | tool 都呼叫對，response 卻幻想了不存在的細節 |
+
+這類就是現有結構級 eval 的真正盲點——分數不該算 PASS。
+
+#### (b) 結構 FAIL、語意 PASS：GT 太嚴，模型實際答對了
+
+| Model | Query | 觀察 |
+|---|---|---|
+| `gpt-5.1` | `compare-005`、`discover-001`、`discover-003`、`follow_up-002` | 結構 GT 列了某些工具，模型用稍微不同組合也答對；語意 judge 看內容認為 OK |
+| `gemma-4-26b` | `compare-004`、`compare-005`、`refuse-003` | 同上 |
+
+這類**反向告訴我們 GT 還可以再放寬**——`get_repository` 的紀律性 anchor 對 reasoning 強的模型可能不必要。
+
+#### 語意級判分的限制
+
+- **gemini-vertex / gemma4 結構分跟語意分一樣**（29 / 27）——巧合不是相關，因為 disagreement 兩端互相抵消（structural_only ≈ semantic_only）
+- **Judge 自己有 bias**：用 Gemini 2.5 Flash 當 judge，遇到 CVE / vulnerability 內容會被 safety filter 攔（gpt51 那次有 1 個 metric 回 None），靠 `ignore_errors=True` 忽略個別失敗 metric
+- **結果僅一次跑分**：LLM-as-judge 非 deterministic，cache 開了但同題重跑分數仍會 ~5–10% 變動
+
+### Synthesizer 自動生題的對照實驗
+
+順便試了 DeepEval 的 `Synthesizer.generate_goldens_from_scratch` 自動生 15 條 query 跟手動 30 題對比（細節在 [`evals/synthesized-queries/findings.md`](evals/synthesized-queries/findings.md)）。結論：
+
+| 維度 | Synthesizer 自動生題 | 手動 + Claude Code co-design |
+|---|---|---|
+| GitHub scope 符合度 | ~53%（一半題目偏離成 essay 題如 "Deduce Google's strategic priorities"） | 100% 都能 map 到 13 個 tool |
+| 多語言覆蓋 | 0/15（全英文） | 6 種非英語（韓/德/越/日/泰/西）|
+| eval-leakage 風險 | 高（同 LLM 生 query + 生 expected_output + 當 judge）| 低（人類負責 grounding） |
+| 引用真實 GitHub 路徑 | 失準（`ms/vscode` 不是真實路徑） | 對齊真實事件（axios 供應鏈、React 漏洞等） |
+
+**結論**：自動生題對 NL→tool-call 場景**不能取代手動 curation**，但作為對照實驗確認了我們的 query 設計策略是對的。詳細 review 見 findings.md。
 
 ---
 
