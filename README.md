@@ -6,7 +6,9 @@
 
 **最終結果**：`gemini-3-flash-preview` **96.7%** · `gemma-4-26b` **90.0%** · `gpt-5.1` **86.7%**（30 題 × 3 model = 90 runs，全員過 85% threshold）。
 
-> **Demo**：CLI 實際跑起來的影片 / 截圖 → `<待補：demo.gif 或 demo.mp4>`
+**Demo**：
+
+![gh](https://raw.githubusercontent.com/SeanChenR/img_gif/main/myimage/1777136625000yka5oy.png)
 
 ---
 
@@ -134,11 +136,7 @@ uv run ghibli --version
 可以幫我看看 Spectra-app 這個 Repo 嗎？跟我說一下最近有什麼樣的更新
 ```
 
-每次 tool dispatch 前 CLI 會印 `→ search_repositories({"q": "..."})`，使用者能看見推理過程，對「黑箱」LLM 很重要。
-
-> **實際輸出範例**：
-
-![gh](https://raw.githubusercontent.com/SeanChenR/img_gif/main/myimage/1777136625000yka5oy.png)
+每次 tool dispatch 前 CLI 會印 `→ search_repositories({"q": "..."})`，使用者能看見推理過程，對「黑箱」LLM 很重要（實際輸出樣子見開頭 [Demo](#ghibli--github-intelligence-bridge) 截圖）。
 
 ### 模型與 picker
 
